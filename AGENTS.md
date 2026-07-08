@@ -7,8 +7,8 @@ You (NL) → Codex (superpowers) → 9Router (:20128) → 18 AI Providers
                                         ↘
            ┌──────────────────────────────────────────────────┐
            │ ZES Control Center Dashboard (:8083)             │
-           │  • Services Monitor · Agent Chat · Models Browser│
-           │  • Auth Manager · Event History · Cron Dashboard │
+           │  • Services · Agent Chat · Models · Auth · Cron  │
+           │  • IP Rotation Status · Event History            │
            └──────────────────────────────────────────────────┘
                                         ↘
            ┌─────────── MCP Layer (:5901) ─────────────┐
@@ -16,7 +16,7 @@ You (NL) → Codex (superpowers) → 9Router (:20128) → 18 AI Providers
            │ type, extract, wait, auth, run_task         │
            └────────────────────────────────────────────┘
                                         ↘
-     Hermes (cron/scheduler) · VS Code (:8000) · OpenCode (:9876)
+     Hermes (5 cron jobs) · VS Code (:8000) · OpenCode (:9876)
 ```
 
 ## Services
@@ -32,7 +32,7 @@ You (NL) → Codex (superpowers) → 9Router (:20128) → 18 AI Providers
 | **Codex Server** | 5900 | — | AI API proxy + Zen gateway |
 | **Headless Chrome** | 9222 | `chromium-cdp` | Browser automation (CDP) |
 | **ttyd** | 7173 | `ttyd` | Web terminal |
-| **Tor** | 9050 | `tor` | SOCKS5 proxy |
+| **Tor** | 9050/9051 | `tor` | SOCKS5 proxy + ControlPort for IP rotation |
 | **SSH** | 8022 | — | Remote access |
 
 ## Dashboard API Endpoints
@@ -40,50 +40,44 @@ You (NL) → Codex (superpowers) → 9Router (:20128) → 18 AI Providers
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/status` | GET | Full system status with providers |
-| `/api/history` | GET | 2h uptime history (60s intervals) |
+| `/api/history` | GET | 2h uptime history |
 | `/api/agent/chat` | POST | Chat with AI via 9Router |
 | `/api/agent/action` | POST | Execute browser action via MCP |
 | `/api/agent/task` | POST | Schedule or run a task |
 | `/api/agent/history` | GET | Agent conversation history |
 | `/api/models` | GET | Available models from 9Router |
 | `/api/services` | GET | Service auth status |
-| `/api/services/auth` | POST | Trigger OAuth flow for a service |
-| `/api/mcp` | GET | MCP server health + available tools |
+| `/api/mcp` | GET | MCP server health + tools |
+| `/api/rotation` | GET | IP rotation status (Tor exit country) |
 
-## Hermes Cron Jobs (4 active)
+## IP Rotation — Tor Exit Node Cycling
+
+**Every 30 minutes** via Hermes cron (`ip-rotation` job):
+1. `SIGNAL NEWNYM` — Tor creates new circuit
+2. `SETCONF ExitNodes={XX}` — Random country from: US, DE, FR, NL, CA, GB, JP, SG, CH, SE, NO, AU, KR, IE, FI
+3. New exit IP verified
+
+**Affected providers:**
+- **DeepSeek** — routes through Tor SOCKS5 (`proxyEnabled=true`)
+- **Zen OpenCode (Tor)** — routes through Tor
+- **OpenClaw Proxy** — routes through Tor
+
+**Tor config:** ControlPort 9051 (auth: none, localhost only)
+
+## Hermes Cron Jobs (5 active)
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
 | `daily-health-check` | every 360m | Check all services, report issues |
 | `log-cleanup` | every 1440m | Clean stale logs and history |
-| `model-rotation` | 0 0 * * 0 (weekly) | Rotate AI provider models |
-| `dashboard-snapshot` | */30 * * * * | Save service status snapshot |
+| `model-rotation` | weekly Sun 00:00 | Check all provider health |
+| `dashboard-snapshot` | every 30 min | Save service status snapshot |
+| `ip-rotation` | every 30 min | Rotate Tor exit IP/country |
 
-## Dashboard UI Tabs
-
-| Tab | Features |
-|-----|----------|
-| **Services** | Live service monitor, sparklines, provider table, env info |
-| **Agent Chat** | Chat with AI via 9Router, model selector, conversation history |
-| **AI Models** | Browser all 9Router providers/models with status |
-| **Services Auth** | Composio, Gmail, Hermes — OAuth status and re-auth |
-| **Event Log** | Agent action history with timestamps and models |
-| **Cron** | Hermes cron job overview |
-
-## 9Router — 18 Providers
-
-### OAuth
-- GitHub Copilot, Cline, Codex (OpenAI), Gemini CLI, Qoder, Kiro
-
-### API Key
-- NVIDIA NIM, Groq, Gemini, DeepSeek, Cerebras, OpenRouter, Anthropic, Cloudflare AI, Mistral AI
-
-### OpenAI-Compatible Nodes
-| Prefix | Endpoint | Proxy |
-|--------|----------|-------|
-| `oz` | :5900/codex-api/zen-proxy/v1 | Direct |
-| `he` | :8787 | Tor |
-| `oc` | :4040/v1 | Tor |
+## Dashboard Persistence
+- Active tab saved to `localStorage` (`zesActiveTab`)
+- Chat history saved to `localStorage` (`zesChatHistory`, `zesChatState`)
+- Refresh rate saved to `localStorage` (`dashboardRefresh`)
 
 ## Quick Reference
 
@@ -95,24 +89,13 @@ sv restart <name>
 # 9Router CLI token
 TOKEN=$(python3 -c "import hashlib;d=open('$HOME/.9router/machine-id').read().strip();s=open('$HOME/.9router/auth/cli-secret').read().strip();print(hashlib.sha256((d+'9r-cli-auth'+s).encode()).hexdigest()[:16])")
 
-# Dashboard API
+# Dashboard
 curl -s http://localhost:8083/api/status
-curl -s -X POST http://localhost:8083/api/agent/chat -H "Content-Type: application/json" -d '{"message":"Hello"}'
-curl -s http://localhost:8083/api/mcp
+curl -s http://localhost:8083/api/rotation
 
-# MCP Server
-curl -s http://localhost:5901/health
+# Tor IP rotation (manual)
+python3 -c "import socket;s=socket.socket();s.connect(('127.0.0.1',9051));s.send(b'AUTHENTICATE\r\nSIGNAL NEWNYM\r\n');print(s.recv(1024).decode());s.close()"
 
 # Hermes cron
 hermes cron list
-hermes cron run <job-id>
-
-# Dashboard v3 source
-cat ~/dashboard_v3.py
 ```
-
-## Known Issues
-
-1. **Kiro** — OAuth expired (AWS Builder ID). Re-auth via Chrome at 9Router dashboard
-2. **OpenCode** — Root path returns 404 (API server, normal)
-3. **Hermes daily-health-check** — Previous delivery failure resolved (now using `local` delivery)
