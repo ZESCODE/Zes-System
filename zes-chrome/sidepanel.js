@@ -89,7 +89,7 @@ function addMessage(text, role) {
   div.textContent = text;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
-  chatHistory.push({ role, text });
+  chatHistory.push({ role, content: text });
   return id;
 }
 
