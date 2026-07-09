@@ -3,6 +3,7 @@
 
 import http from 'http';
 import { ToolRegistry } from './tools.js';
+import { captureScreenshot, normalizeCdpWsUrl, getActiveTab, listTargets } from './cdp-helpers.js';
 
 const PORT = 5901;
 const tools = new ToolRegistry();
@@ -87,6 +88,43 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: err.message }));
       }
     });
+    return;
+  }
+
+  // CDP screenshot endpoint (uses OpenClaw-style CDP helpers)
+  if (req.url === '/api/cdp/screenshot' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const args = body ? JSON.parse(body) : {};
+        const tab = await getActiveTab();
+        if (!tab) throw new Error('No active page tab');
+        const wsUrl = normalizeCdpWsUrl(tab.webSocketDebuggerUrl, 'http://localhost:9222');
+        const base64 = await captureScreenshot(wsUrl, { fullPage: args.fullPage, format: 'png' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: base64 }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // CDP targets list endpoint
+  if (req.url === '/api/cdp/targets' && req.method === 'GET') {
+    try {
+      const targets = await listTargets();
+      const pages = targets.filter(t => t.type === 'page').map(t => ({
+        id: t.id, title: t.title, url: t.url,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, targets: pages }));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 

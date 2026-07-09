@@ -2,6 +2,7 @@
 // Uses Chrome DevTools Protocol directly + extension service worker
 
 import { BrowserAgent } from "./agent.js";
+import { captureScreenshot, captureScreenshotPng, normalizeCdpWsUrl, getActiveTab, listTargets, withCdpSocket, evaluateOnPage } from "./cdp-helpers.js";
 let _agentInstance = null;
 let _registry = null;
 function getAgent() {
@@ -169,15 +170,20 @@ export class ToolRegistry {
       }
     });
 
-    // screenshot — Capture visible tab
+    // screenshot — Capture visible tab (uses CDP helpers for stability)
     this.register('screenshot', {
       name: 'screenshot',
-      description: 'Take a screenshot of the current tab',
-      inputSchema: { type: 'object', properties: {}, required: [] },
-      execute: async () => {
-        await this._send('Page.enable');
-        const result = await this._send('Page.captureScreenshot', { format: 'png' });
-        return { content: [{ type: 'image', data: 'data:image/png;base64,' + result.data, mimeType: 'image/png' }] };
+      description: 'Take a screenshot of the current tab. Pass fullPage:true to capture entire page.',
+      inputSchema: { type: 'object', properties: {
+        fullPage: { type: 'boolean', description: 'Capture full page content beyond viewport' }
+      }, required: [] },
+      execute: async (args = {}) => {
+        const tab = await getActiveTab();
+        if (!tab) throw new Error('No active page tab found');
+        const wsUrl = normalizeCdpWsUrl(tab.webSocketDebuggerUrl, CDP_URL);
+        const base64 = await captureScreenshotPng(wsUrl, { fullPage: args.fullPage === true });
+        if (!base64) throw new Error('Screenshot failed: no data');
+        return { content: [{ type: 'image', data: 'data:image/png;base64,' + base64, mimeType: 'image/png' }] };
       }
     });
 

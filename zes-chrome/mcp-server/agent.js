@@ -1,14 +1,26 @@
 // ZES Browser Agent — 9Router Agent Plugin
 // Adds autonomous browser agent capability using 9Router via existing MCP tools
 
+import { ToolRepair } from './tool-repair.js';
+
 export class BrowserAgent {
   constructor(toolRegistry) {
     this.tools = toolRegistry;
+    this.repair = new ToolRepair(toolRegistry);
     this.running = false;
     this.maxIterations = 30;
+    this.defaultModel = 'groq/llama-3.3-70b-versatile';
   }
 
   async run(task, options = {}) {
+    if (options.stream) {
+      options.stream.push({
+        type: 'step',
+        timestamp: Date.now(),
+        iteration: 0,
+        message: `Starting task: ${task.slice(0, 100)}`,
+      });
+    }
     if (this.running) throw new Error('Agent already running');
     this.running = true;
 
@@ -63,16 +75,30 @@ export class BrowserAgent {
           continue;
         }
 
-        // Execute the tool
-        const tool = this.tools.get(parsed.tool);
-        if (!tool) {
-          messages.push({ role: 'user', content: `Unknown tool: ${parsed.tool}. Available: ${this.tools.list().map(t => t.name).join(', ')}` });
+        // Use ToolRepair for fuzzy matching, field aliasing, and validation
+        const repaired = this.repair.repair(parsed);
+        if (!repaired) {
+          const availableTools = this.tools.list().map(t => t.name).join(', ');
+          messages.push({ role: 'user', content: `Unknown tool: "${parsed.tool || '(unknown)'}". Available: ${availableTools}. Respond with one of these tool names.` });
           continue;
         }
 
-        const result = await tool.execute(parsed.args || {});
+        // Execute the repaired tool
+        const tool = this.tools.get(repaired.tool);
+        const result = await tool.execute(repaired.args || {});
         const resultText = result?.content?.[0]?.text || JSON.stringify(result);
-        messages.push({ role: 'user', content: `Tool ${parsed.tool} result: ${resultText.slice(0, 2000)}` });
+        messages.push({ role: 'user', content: `Tool ${repaired.tool} result: ${resultText.slice(0, 2000)}` });
+
+        // Emit streaming event
+        if (options && options.stream) {
+          options.stream.push({
+            type: 'toolCall',
+            timestamp: Date.now(),
+            tool: repaired.tool,
+            args: repaired.args,
+            result: resultText.slice(0, 500),
+          });
+        }
       }
 
       return { success: false, error: 'Max iterations reached' };
