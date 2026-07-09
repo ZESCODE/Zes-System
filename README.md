@@ -89,6 +89,31 @@ Uses OpenAI Responses API wire format. `OPENAI_API_KEY` env var cleared to preve
 | Tor | 9050 | `tor` | SOCKS5 proxy |
 | Socat | 8090 | `socat` | TCP bridge |
 | SSH | 8022 | — | Remote access |
+| ZES Chrome Ext | — | `zeschrome-mcp` | Browser AI agent (forked ChromePilot + 9Router) |
+
+## ZES Chrome Extension
+
+The ZES Chrome extension provides an AI browser agent with voice input and automation.
+Forked from ChromePilot, with Gemini API calls intercepted and routed through 9Router.
+
+### Key Files (deployed at `ZES-project/Zeschrome/`)
+
+| File | Purpose |
+|------|---------|
+| `js/gemini-proxy.js` | Intercepts Gemini SDK auth & routes to 9Router |
+| `js/background.js` | Service worker with 9Router provider (`:20128/v1`) |
+| `js/voicekeyboard.js` | Voice input with 9Router fallback |
+| `js/debug-toggle.js` | Debug mode bypass for Google OAuth |
+
+### Architecture
+
+```
+Sidepanel → gemini-proxy.js (dummy key + fetch reroute) → 9Router (:20128)
+     ↕                         ↕
+Background SW ←→ MCP Server (:5901) ←→ Chrome CDP (:9222)
+```
+
+Extension ID: `cnhdhgglemkhmhfifebllhieckiogchc`
 
 ## Quick Links
 
