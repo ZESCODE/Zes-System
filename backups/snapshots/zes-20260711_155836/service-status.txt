@@ -1,0 +1,7 @@
+run: /data/data/com.termux/files/usr/var/service/zeschrome-mcp: (pid 15407) 3797s; run: log: (pid 7305) 219908s
+run: /data/data/com.termux/files/usr/var/service/dashboard8083: (pid 18902) 348s; warning: /data/data/com.termux/files/usr/var/service/dashboard8083/log: unable to open supervise/ok: file does not exist
+run: /data/data/com.termux/files/usr/var/service/hermes-gateway: (pid 7650) 1386s
+run: /data/data/com.termux/files/usr/var/service/chromium-cdp: (pid 17226) 184796s
+run: /data/data/com.termux/files/usr/var/service/tor: (pid 6754) 220095s, normally down; run: log: (pid 22263) 232484s
+run: /data/data/com.termux/files/usr/var/service/ttyd: (pid 10292) 229544s
+run: /data/data/com.termux/files/usr/var/service/vscode-server: (pid 22267) 232484s; run: log: (pid 22265) 232484s

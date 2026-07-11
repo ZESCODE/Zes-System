@@ -1,0 +1,74 @@
+{
+  "version": "2026.5",
+  "models": {
+    "mode": "9router",
+    "providers": {
+      "9router": {
+        "baseUrl": "http://localhost:20128/v1",
+        "api": "openai-completions",
+        "models": [
+          { "id": "gh/claude-sonnet-4.6", "name": "Claude Sonnet 4.6", "contextWindow": 200000 },
+          { "id": "gh/claude-sonnet-4.5", "name": "Claude Sonnet 4.5", "contextWindow": 200000 },
+          { "id": "gh/claude-opus-4.6-thinking", "name": "Claude Opus 4.6", "contextWindow": 200000 },
+          { "id": "groq/llama-3.3-70b", "name": "Llama 3.3 70B (Groq)", "contextWindow": 128000 },
+          { "id": "gemini/gemini-2.5-flash", "name": "Gemini 2.5 Flash", "contextWindow": 1000000 },
+          { "id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "contextWindow": 128000 },
+          { "id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "contextWindow": 128000 },
+          { "id": "anthropic/claude-sonnet-4-20250514", "name": "Claude Sonnet 4 (API)", "contextWindow": 200000 },
+          { "id": "openrouter/anthropic/claude-sonnet-4.6", "name": "Claude Sonnet 4.6 (OpenRouter)", "contextWindow": 200000 },
+          { "id": "nvidia/nvidia-nim", "name": "NVIDIA NIM", "contextWindow": 128000 },
+          { "id": "cerebras/cerebras", "name": "Cerebras", "contextWindow": 8192 }
+        ]
+      }
+    },
+    "routing": {
+      "path": "/data/data/com.termux/files/home/.hermes/config.yaml"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "9router/gh/claude-sonnet-4.6" },
+      "workspace": "/data/data/com.termux/files/home/.zes/workspace",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "timeoutSeconds": 300,
+      "sandbox": { "mode": "full", "allow": ["*"] },
+      "skills": { "allow": ["*"] }
+    },
+    "list": [
+      {
+        "id": "zes-core",
+        "name": "ZES Core Agent",
+        "workspace": "/data/data/com.termux/files/home/.zes/workspace",
+        "model": { "primary": "9router/gh/claude-sonnet-4.6", "fallbacks": ["9router/anthropic/claude-sonnet-4-20250514", "9router/groq/llama-3.3-70b"] },
+        "contextWindow": 128000,
+        "temperature": 0.7,
+        "tools": { "allow": ["*"] }
+      },
+      {
+        "id": "zes-coder",
+        "name": "ZES Coder",
+        "workspace": "/data/data/com.termux/files/home/.zes/workspace-coder",
+        "model": { "primary": "9router/deepseek-v4-flash", "fallbacks": ["9router/gh/claude-sonnet-4.5"] },
+        "contextWindow": 128000,
+        "temperature": 0.2,
+        "tools": { "allow": ["*"] }
+      },
+      {
+        "id": "zes-fast",
+        "name": "ZES Fast Think",
+        "workspace": "/data/data/com.termux/files/home/.zes/workspace-fast",
+        "model": { "primary": "9router/groq/llama-3.3-70b" },
+        "contextWindow": 32000,
+        "temperature": 0.3,
+        "tools": { "allow": ["read", "write", "search", "fetch"] }
+      }
+    ]
+  },
+  "gateway": {
+    "mode": "hermes",
+    "hermesEndpoint": "http://localhost:8787",
+    "controlUi": { "allowedOrigins": ["*"] }
+  },
+  "update": { "checkOnStart": false }
+}

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zesChrome</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="header">
+      <div class="logo">
+        <div class="z-logo">Z</div>
+        <span class="title">zesChrome</span>
+      </div>
+      <div class="agent-toggle">
+        <span class="toggle-label">Agent</span>
+        <label class="switch">
+          <input type="checkbox" id="agentToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-dot" id="mcpStatus"></span>
+        <span>MCP</span>
+      </div>
+      <div class="status-item">
+        <span class="status-dot" id="dashboardStatus"></span>
+        <span>Dashboard</span>
+      </div>
+      <div class="status-item">
+        <span class="status-dot" id="modelStatus"></span>
+        <span>9Router</span>
+      </div>
+    </div>
+
+    <div class="section-label">Connected Services</div>
+    <div class="services" id="servicesList">
+      <div class="service-item disabled">Gmail</div>
+      <div class="service-item disabled">Drive</div>
+      <div class="service-item disabled">GitHub</div>
+    </div>
+
+    <div class="section-label">Quick Actions</div>
+    <div class="quick-actions">
+      <button class="action-btn" id="openSidePanel">💬 Open Side Panel</button>
+      <button class="action-btn" id="captureScreenshot">📸 Screenshot</button>
+      <button class="action-btn" id="openDashboard">📊 Dashboard</button>
+    </div>
+
+    <div class="section-label">Recent Tasks</div>
+    <div class="task-list" id="taskList">
+      <div class="task-item empty">No recent tasks</div>
+    </div>
+
+    <div class="footer">
+      <span>ZES System v1.0</span>
+      <a href="#" id="settingsBtn">⚙️</a>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "zeschrome-mcp",
+  "version": "1.0.0",
+  "description": "MCP server bridging Codex ↔ Chrome browser via CDP",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
