@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zesChrome Agent</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="app">
+    <div class="panel-header">
+      <div class="panel-logo">
+        <div class="z-logo">Z</div>
+        <span>zesChrome Agent</span>
+      </div>
+      <button id="settingsBtn" title="Settings">⚙️</button>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab active" data-tab="chat">💬 Chat</button>
+      <button class="tab" data-tab="agent">🤖 Agent</button>
+      <button class="tab" data-tab="services">🔌 Services</button>
+      <button class="tab" data-tab="history">📋 History</button>
+    </div>
+
+    <div class="tab-content active" id="tab-chat">
+      <div class="messages" id="messages"></div>
+      <div class="input-area">
+        <textarea id="chatInput" placeholder="Ask the agent to do something..." rows="3"></textarea>
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-agent">
+      <div class="agent-status">
+        <div class="status-indicator" id="agentStatusIndicator">● Idle</div>
+        <button id="toggleAgentBtn" class="primary-btn">Activate Agent</button>
+      </div>
+      <div class="agent-info">
+        <p><strong>Model:</strong> <span id="currentModel">Claude (9Router)</span></p>
+        <p><strong>Tab:</strong> <span id="currentTab">None</span></p>
+      </div>
+      <div class="section-label">Current Task</div>
+      <div class="task-progress" id="taskProgress">
+        <div class="task-step">No active task</div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-services">
+      <div class="services-list" id="servicesPanel">
+        <div class="service-card" data-service="gmail">
+          <span>📧 Gmail</span>
+          <span class="service-status disconnected">Disconnected</span>
+          <button class="connect-btn" data-service="gmail">Connect</button>
+        </div>
+        <div class="service-card" data-service="drive">
+          <span>📁 Drive</span>
+          <span class="service-status disconnected">Disconnected</span>
+          <button class="connect-btn" data-service="drive">Connect</button>
+        </div>
+        <div class="service-card" data-service="calendar">
+          <span>📅 Calendar</span>
+          <span class="service-status disconnected">Disconnected</span>
+          <button class="connect-btn" data-service="calendar">Connect</button>
+        </div>
+        <div class="service-card" data-service="github">
+          <span>🐙 GitHub</span>
+          <span class="service-status disconnected">Disconnected</span>
+          <button class="connect-btn" data-service="github">Connect</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-history">
+      <div class="history-filters">
+        <input type="text" id="historySearch" placeholder="Search history...">
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="history-item empty">No history yet</div>
+      </div>
+    </div>
+  </div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

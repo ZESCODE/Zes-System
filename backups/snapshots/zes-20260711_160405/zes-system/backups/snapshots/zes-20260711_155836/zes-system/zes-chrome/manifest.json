@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "ZES Chrome — AI Browser Agent",
+  "short_name": "zesChrome",
+  "version": "1.0.0",
+  "description": "AI-powered browser agent connected to Codex and 9Router",
+  "author": "ZES System",
+  "minimum_chrome_version": "101",
+  "permissions": [
+    "sidePanel", "scripting", "tabs", "storage",
+    "unlimitedStorage", "activeTab", "identity"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "zesChrome",
+    "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      }
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

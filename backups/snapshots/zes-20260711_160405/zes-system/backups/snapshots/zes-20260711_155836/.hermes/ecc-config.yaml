@@ -1,0 +1,32 @@
+# ECC Cross-Harness Integration for ZES/Hermes
+# Imported from affaan-m/ECC v2.0.0
+# This config enables ECC skills, agents, and hooks in Hermes
+
+ecc:
+  version: "2.0.0"
+  root: "/data/data/com.termux/files/home/Zes-System"
+  
+  skills_dirs:
+    - "/data/data/com.termux/files/home/Zes-System/.agents/skills"
+  
+  agents_dirs:
+    - "/data/data/com.termux/files/home/Zes-System/.agents/agents"
+  
+  hooks_dirs:
+    - "/data/data/com.termux/files/home/Zes-System/scripts/hooks"
+  
+  enabled_hooks:
+    - "mcp-health-check"
+    - "gateguard-fact-force"
+    - "config-protection"
+    - "governance-capture"
+  
+  mcp_servers:
+    enabled: true
+    max_servers: 6
+  
+  security:
+    gateguard: true
+    secret_scan: true
+    config_protection: true
+    governance_capture: true

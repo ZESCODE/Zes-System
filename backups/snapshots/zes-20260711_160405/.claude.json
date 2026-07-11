@@ -1,0 +1,77 @@
+{
+  "mcpServers": {
+    "zeschrome": {
+      "command": "node",
+      "args": ["/data/data/com.termux/files/home/Zes-System/zes-chrome/mcp-server/server.js"],
+      "description": "ZES Chrome MCP — browser automation via CDP + ZES system tools"
+    },
+    "zes-bridge": {
+      "command": "node",
+      "args": ["/data/data/com.termux/files/home/Zes-System/zes-chrome/zes-bridge-mcp/server.js"],
+      "description": "ZES Bridge MCP — dashboard, 9Router, services, Tor control"
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"],
+      "description": "Chrome DevTools MCP — browser debugging protocol"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/data/data/com.termux/files/home"],
+      "description": "Filesystem operations on ZES workspace"
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "description": "Persistent memory across Claude Code sessions"
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "description": "Chain-of-thought reasoning and structured thinking"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /data/data/com.termux/files/home/Zes-System/scripts/hooks/mcp-health-check.js",
+            "timeout": 5,
+            "statusMessage": "Checking MCP health..."
+          }
+        ],
+        "description": "Verify MCP servers are healthy before tool use",
+        "id": "pre:tool:mcp-health"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /data/data/com.termux/files/home/Zes-System/scripts/hooks/gateguard-fact-force.js",
+            "timeout": 3,
+            "statusMessage": "Running security gate..."
+          }
+        ],
+        "description": "Prevent factually incorrect or dangerous commands",
+        "id": "pre:bash:gateguard"
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /data/data/com.termux/files/home/Zes-System/scripts/hooks/config-protection.js",
+            "timeout": 3,
+            "statusMessage": "Checking config integrity..."
+          }
+        ],
+        "description": "Block modifications to linter/formatter/service configs",
+        "id": "pre:write:config-protection"
+      }
+    ]
+  }
+}
