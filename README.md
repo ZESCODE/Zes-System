@@ -12,169 +12,176 @@ The ZES Control Center shows all services, AI provider status, system environmen
 
 ```
 Termux (Android aarch64) + Debian proot
-├── 9Router v0.5.20       — AI provider router (:20128, 18 providers)
-├── Hermes Gateway        — AI agent cron, scheduler, automation
-├── OpenCode              — AI coding agent (:9876)
-├── VS Code Server        — Web VS Code with Cline/Continue (:8000)
-├── Codex App Server      — AI API proxy + Zen gateway (:5900)
-├── Dashboard             — ZES Control Center (:8083)
-├── runit (runsv)         — Service supervision
-├── Tor                   — Anonymizing proxy (:9050)
-├── Headless Chromium     — Browser automation (:9222)
-└── ttyd                  — Web terminal (:7173)
+├── 9Router v0.5.20         — AI provider router (:20128, 18 providers)
+├── Hermes Gateway          — AI agent cron, scheduler, automation
+├── Claude Code              — AI coding agent (:5905/5900)
+├── VS Code Server          — Web VS Code with Cline/Continue (:8000)
+├── VS Code Mobile Panel    — Mobile-optimized VS Code wrapper (:8001)
+├── Agent Dashboard API     — Agent monitoring REST API (:8002)
+├── Agent Dashboard Web     — Agent dashboard frontend (:8003)
+├── Codex Server            — AI API proxy (:5900)
+├── zesChrome MCP           — Chrome CDP bridge for browser automation (:5901)
+├── Headless Chrome         — Browser automation engine (:9222)
+├── ttyd                    — Web terminal (:7173)
+├── Tor                     — SOCKS5 proxy for IP rotation (:9050)
+└── Socat                   — TCP bridge (:8090)
 ```
-
-## 9Router — 18 Providers
-
-### OAuth
-- **GitHub Copilot** — `arfaXdev`, free Copilot tier
-- **Cline** — `arfaxtrade@gmail.com` via WorkOS
-- **Codex (OpenAI)** — `arfaxtrade@gmail.com` free tier
-- **Gemini CLI** — Google Cloud OAuth
-- **Qoder** — Device auth, 30-day session
-- **Kiro** — ⚠️ AWS Builder ID OAuth expired, needs re-auth
-
-### API Key
-- NVIDIA NIM, Groq, Gemini, DeepSeek, Cerebras, OpenRouter, Anthropic, Cloudflare AI, **Mistral AI**
-
-### OpenAI-Compatible Nodes
-| Prefix | Name | Endpoint | Proxy |
-|--------|------|----------|-------|
-| `oz` | Zen OpenCode | :5900/codex-api/zen-proxy/v1 | Direct |
-| `he` | Hermes AI | :8787 | Tor SOCKS5 |
-| `oc` | OpenClaw Proxy | :4040/v1 | Tor SOCKS5 |
-
-## Codex Configuration
-
-Codex routes through 9Router for all AI calls:
-
-```toml
-model = "groq/llama-3.3-70b-versatile"       # Fast, direct routing
-model_provider = "9router"
-[agents.subagent]
-model = "gh/gpt-5.4-mini-free-auto"           # GitHub Copilot free tier
-```
-
-Uses OpenAI Responses API wire format. `OPENAI_API_KEY` env var cleared to prevent routing conflicts.
-
-## Installed Skills (7 personal + superpowers)
-
-### Custom Skills
-- **service-management** — runsv service control, proot access, port checks
-- **9router-provider-check** — CLI token gen, provider status, model routing
-- **spec-driven-development** — Write spec before code (*from addyosmani/agent-skills*)
-- **incremental-implementation** — Build in testable slices (*from addyosmani/agent-skills*)
-- **source-driven-development** — Understand code before changing (*from addyosmani/agent-skills*)
-- **code-simplification** — Reduce complexity, clarify logic (*from addyosmani/agent-skills*)
-- **ci-cd-and-automation** — Automate builds, services, deployments (*from addyosmani/agent-skills*)
-
-### Superpowers (loaded via plugin)
-- brainstorming, dispatching-parallel-agents, executing-plans, writing-plans
-- test-driven-development, systematic-debugging
-- requesting-code-review, receiving-code-review, finishing-a-development-branch
-- verification-before-completion, subagent-driven-development
 
 ## Services
 
-| Service | Port | Runsv | Purpose |
-|---------|------|-------|---------|
-| Dashboard | 8083 | `dashboard8083` | ZES Control Center |
-| 9Router | 20128 | — | AI provider router |
-| Codex Server | 5900 | — | AI API proxy + Zen gateway |
-| Hermes Gateway | — | `hermes-gateway` | Cron, scheduler, agent backend |
-| OpenCode | 9876 | `opencode` | AI coding agent |
-| VS Code Server | 8000 | `vscode-server` | Web VS Code |
-| ttyd | 7173 | `ttyd` | Web terminal |
-| Headless Chrome | 9222 | `chromium-cdp` | Browser automation |
-| Tor | 9050 | `tor` | SOCKS5 proxy |
-| Socat | 8090 | `socat` | TCP bridge |
-| SSH | 8022 | — | Remote access |
-| ZES Chrome Ext | — | `zeschrome-mcp` | Browser AI agent (forked ChromePilot + 9Router) |
+| Service | Port | Runsv | Status | Description |
+|---------|------|-------|--------|-------------|
+| **9Router** | 20128 | `r9` | ✅ running | AI provider router — 18 providers |
+| **Dashboard v4** | 8083 | `dashboard8083` | ✅ running | ZES Control Center (SSE, drawer nav, provider models, mobile) |
+| **VS Code Server** | 8000 | `vscode-server` | ✅ running | Web VS Code (Cline + Continue + Copilot) |
+| **VS Code Mobile** | 8001 | `vscode-mobile` | ✅ running | Mobile-optimized VS Code with touch zoom, toolbar, 2-col split |
+| **Hermes Gateway** | 8787 | `hermes-gateway` | ✅ running | Cron, scheduler, agent backend |
+| **Agent Dashboard API** | 8002 | `agent-dash` | ✅ running | Agent monitoring REST API |
+| **Agent Dashboard Web** | 8003 | `agent-dash-web` | ✅ running | Agent dashboard frontend |
+| **zesChrome MCP** | 5901 | `zeschrome-mcp` | ✅ running | Codex ↔ Chrome bridge (14 tools) |
+| **Claude Code** | 5905 | `claude` | ✅ installed | AI coding agent via 9Router |
+| **Headless Chrome** | 9222 | `chromium-cdp` | ✅ running | Browser automation (CDP) |
+| **ttyd** | 7173 | `ttyd` | ✅ running | Web terminal |
+| **Tor** | 9050 | `tor` | ✅ running | SOCKS5 proxy + ControlPort (9051) |
+| **Codex Server** | 5900 | — | ✅ running | AI API proxy |
+| **Socat** | 8090 | — | ✅ running | TCP bridge |
+| **SSH** | 8022 | — | ⬇️ stopped | Remote access |
 
-## ZES Chrome Extension
+## AI Providers (via 9Router)
 
-The ZES Chrome extension provides an AI browser agent with voice input and automation.
-Forked from ChromePilot, with Gemini API calls intercepted and routed through 9Router.
+| Provider | Status | Auth | Notes |
+|----------|--------|------|-------|
+| **OpenRouter** | ✅ active | API key | 5 routed models |
+| **Groq** | ✅ active | API key | Fast inference |
+| **Gemini** | ✅ active | API key | Google models |
+| **Cerebras** | ✅ active | API key | Fast CS-3 |
+| **Mistral AI** | ✅ active | API key | Mistral models |
+| **Cloudflare AI** | ✅ active | API key | 61+ models, verified working |
+| **GitHub Copilot** | ✅ active | OAuth | Copilot Free plan |
+| **Cline** | ✅ active | OAuth | Cline provider |
+| **Kiro** | ✅ active | OAuth | 18 models routed |
+| **NVIDIA NIM** | ❌ unavailable | API key | 502 timeout, needs re-config |
 
-### Key Files (deployed at `ZES-project/Zeschrome/`)
-
-| File | Purpose |
-|------|---------|
-| `js/gemini-proxy.js` | Intercepts Gemini SDK auth & routes to 9Router |
-| `js/background.js` | Service worker with 9Router provider (`:20128/v1`) |
-| `js/voicekeyboard.js` | Voice input with 9Router fallback |
-| `js/debug-toggle.js` | Debug mode bypass for Google OAuth |
-
-### Architecture
-
-```
-Sidepanel → gemini-proxy.js (dummy key + fetch reroute) → 9Router (:20128)
-     ↕                         ↕
-Background SW ←→ MCP Server (:5901) ←→ Chrome CDP (:9222)
-```
-
-Extension ID: `cnhdhgglemkhmhfifebllhieckiogchc`
-
-## Quick Links
-
-| Service | URL |
-|---------|-----|
-| ZES Dashboard | http://localhost:8083 |
-| 9Router | http://localhost:20128 |
-| Hermes WebUI | http://localhost:8787 |
-| Codex Server | http://localhost:5900 |
-| Web Terminal | http://localhost:7173 |
-| OpenCode Server | http://localhost:9876 |
-| VS Code Server | http://localhost:8000 |
-
-## Common Commands
+## Quick Start
 
 ```bash
-# Start all services
-bash ~/startall.sh
-
-# Stop all services
-bash ~/stopall.sh
-
-# Service management
+# Check all services
 sv status /data/data/com.termux/files/usr/var/service/*
+
+# Restart a service
+sv restart r9        # 9Router
 sv restart dashboard8083
+sv restart vscode-mobile
 
-# 9Router API
-TOKEN=$(python3 -c "import hashlib;d=open('$HOME/.9router/machine-id').read().strip();s=open('$HOME/.9router/auth/cli-secret').read().strip();print(hashlib.sha256((d+'9r-cli-auth'+s).encode()).hexdigest()[:16])")
-curl -H "x-9r-cli-token: $TOKEN" http://localhost:20128/api/providers
+# Dashboard
+curl -s http://localhost:8083/api/status | python3 -m json.tool
 
-# Dashboard API
-curl -s http://localhost:8083/api/status
+# AI test (via 9Router/Cloudflare)
+curl -s -H "Authorization: Bearer sk-d25ec2e336a68df0-trhjvq-621c9b41" \
+  http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"cf/@cf/qwen/qwen2.5-coder-32b-instruct","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-## Gmail Integration
+## File Structure
 
-- **Composio SDK** — Gmail OAuth (`arfaxtrade@gmail.com`)
-- **IMAP/SMTP** — Alternative email client via `gmail-tool`
+```
+~/
+├── AGENTS.md                 — Main system guide (v5)
+├── dashboard_v3.py           — Python dashboard serving :8083
+├── Zes-System/               — System repo
+│   ├── README.md             — This file
+│   ├── AGENTS.md             — System agents guide
+│   ├── docs/                 — Documentation
+│   └── services/
+│       └── vscode-mobile/    — Mobile VS Code wrapper
+│           ├── server.js     — Node.js proxy server
+│           └── wrapper.html  — Mobile HTML wrapper
+├── Documents/Codex/          — Codex sessions
 
-## Integrated Modules (from Termux-Claw)
 
-The following modules from [arfaXdev/Termux-Claw](https://github.com/arfaXdev/Termux-Claw) have been adapted for 9Router:
+## Codex Orchestrator Layer
 
-| Module | File | Port | Purpose |
-|--------|------|------|---------|
-| **Swarm Orchestrator** | `services/zes_swarm.py` | 5030 | Multi-agent workflows via 9Router |
-| **Service Toggle** | `services/service_toggle.py` | — | runsv-aware service management |
-| **Tool Scanner** | `services/tool_scanner.py` | — | Discover executables and services |
-| **Context Feeder** | `services/context_feeder.py` | — | Watch workspace for agent context |
-| **OpenClaw Config** | `services/openclaw.json` | — | Agent orchestration with 9Router |
+Codex acts as the **NL orchestrator** for the ZES system, understanding user intent and delegating to the right backend.
 
-Start the swarm:
+```
+Codex (NL Orchestrator) ──┬── proot-distro → Claude Code (deep coding)
+                           ├── hermes CLI → Hermes Gateway (cron, messaging)
+                           ├── sv → runsv services (system control)
+                           └── curl → Dashboard + 9Router API (monitoring)
+```
+
+### Quick Commands
+
 ```bash
-python3 ~/Zes-System/services/zes_swarm.py --port 5030 &
+zes start              # Start all 25 services
+zes stop               # Stop all services
+zes menu               # Interactive TUI menu
+zes status             # Show all services + health
+zes restart <svc>      # Restart a service
 ```
 
-List/toggle services:
+### Orchestrator Skill
+
+A dedicated skill at `~/.codex/skills/zes-orchestrator/` provides 6 scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `claude-code-exec.sh` | Delegate coding tasks to Claude Code (proot) |
+| `claude-session-reader.sh` | Interact with running Claude Code session |
+| `9router-switch-model.sh` | List, switch, test AI models from 18 providers |
+| `hermes-cron-manager.sh` | Schedule/manage Hermes cron jobs |
+| `hermes-cron-notify.sh` | Report cron results to dashboard/Telegram |
+| `system-health.sh` | Comprehensive health check |
+
+### Delegating to Claude Code
+
 ```bash
-python3 ~/Zes-System/services/service_toggle.py list
+# Send a coding task to Claude Code (returns result)
+ANTHROPIC_BASE_URL=http://127.0.0.1:5905 ANTHROPIC_API_KEY=sk-ant-anything \
+  proot-distro login debian -- claude -p "Find and fix the bug" --bare --allowedTools "Bash,Read,Write,Edit"
+
+# Or use the helper script
+bash ~/.codex/skills/zes-orchestrator/scripts/claude-code-exec.sh "Fix the login bug"
 ```
 
-## Plugins
+### Model Switching
 
-See `plugins/README.md` for plugin integration details.
+```bash
+# List all 694 models from 18 providers
+bash ~/.codex/skills/zes-orchestrator/scripts/9router-switch-model.sh list
+
+# Switch Claude Code's default model
+bash ~/.codex/skills/zes-orchestrator/scripts/9router-switch-model.sh switch gh/claude-sonnet-4.6
+
+# Switch and restart Claude Code
+bash ~/.codex/skills/zes-orchestrator/scripts/9router-switch-model.sh switch gh/claude-sonnet-4.6 --restart
+
+# Smart model suggestion for task type
+bash ~/.codex/skills/zes-orchestrator/scripts/9router-switch-model.sh smart coding
+```
+
+### Cron Job Management
+
+```bash
+# View all cron jobs
+hermes cron list
+
+# Create a new cron job
+hermes cron create "every 60m" "Check disk space and memory" --name "health-check"
+
+# Use the manager script
+bash ~/.codex/skills/zes-orchestrator/scripts/hermes-cron-manager.sh list
+bash ~/.codex/skills/zes-orchestrator/scripts/hermes-cron-manager.sh create "my-job" "Do something" "every 60m"
+
+└── .9router/                 — 9Router database and config
+```
+
+## Links
+
+- **Dashboard**: http://localhost:8083
+- **VS Code**: http://localhost:8000
+- **VS Code (Mobile)**: http://localhost:8001
+- **Agent Dashboard**: http://localhost:8003
+- **ttyd (Terminal)**: http://localhost:7173
+- **Claude Code**: CLI via `claude` command · Proxy http://localhost:5905

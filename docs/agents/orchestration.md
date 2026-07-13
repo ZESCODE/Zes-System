@@ -26,15 +26,62 @@ hermes cron remove <id>             # Remove a cron job
 
 Hermes skills are located at `~/hermes-agent-full/skills/`. The Google Workspace skill at `skills/productivity/google-workspace/` provides OAuth-based Gmail, Calendar, and Drive access.
 
-## OpenCode AI Coding Agent
+## Claude Code AI Coding Agent
 
-OpenCode 2.0 runs inside the proot container on port 9876.
+Claude Code 2.0 runs inside the proot container on port 9876.
 
-**Config:** `~/.config/opencode/opencode.json`
+**Claude Code:** CLI agent via 9Router proxy · `claude -p "task"`
 **Model:** `9router/cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast`
 **Provider:** 9Router (OpenAI-compatible)
 
 The config routes all requests through 9router for provider rotation and token management.
+
+
+## Codex NL Orchestrator
+
+Codex is the **natural language orchestrator** for ZES, routing tasks to the best backend.
+
+### Architecture
+
+```
+Codex ──┬── proot-distro → Claude Code (deep coding, file ops, MCP tools)
+        ├── hermes CLI → Hermes Gateway (cron jobs, messaging)
+        ├── sv → runsv services (system start/stop/restart)
+        ├── curl → 9Router API (18 AI providers, model switching)
+        └── curl → Dashboard API (:8083, health monitoring)
+```
+
+### Delegation Patterns
+
+| Task Type | Backend | Method |
+|-----------|---------|--------|
+| Coding, debugging, file ops | Claude Code (proot) | `claude -p "task" --bare` |
+| Scheduled tasks | Hermes cron | `hermes cron create "schedule" "prompt"` |
+| System health | Dashboard API | `curl localhost:8083/api/status` |
+| Model switching | 9Router API | `9router-switch-model.sh switch <model>` |
+| Service management | runsv | `sv restart <service>` |
+
+### Agent Config Files
+
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Codex** | `~/.codex/AGENTS.md` | Orchestrator knowledge + connection map |
+| **Claude Code** | `proot ~/.claude/CLAUDE.md` | Takes orders from Codex, uses MCP tools |
+| **Hermes** | `~/.hermes/SOUL.md` (Termux + proot) | Accepts scheduling from Codex |
+
+### Orchestrator Skill
+
+Path: `~/.codex/skills/zes-orchestrator/`
+
+- `SKILL.md` — 6 delegation patterns + 3 new features (357 lines)
+- `scripts/` — 6 executable scripts
+- `sub-skills/9router-model-switch/SKILL.md` — Model selection reference
+- `references/architecture.md` — Full system topology
+
+### Dashboard Integration
+
+The dashboard at `:8083` has a **Cron tab** showing all 6 Hermes cron jobs with status, schedule, and recent results. Auto-refreshes every 30s.
+
 
 ## CMDOP Fleet Orchestration
 

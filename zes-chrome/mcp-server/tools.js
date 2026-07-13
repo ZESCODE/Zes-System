@@ -400,5 +400,83 @@ export class ToolRegistry {
         return { content: [{ type: 'text', text: 'Extension: ZES Chrome\n  Active: ' + (sw ? 'yes' : 'no') + '\n  SW ID: ' + extId }] };
       }
     });
+
+    /* ── ZES System Management Tools ────────────────────────── */
+
+    this.register("check_service", {
+      name: "check_service",
+      description: "Check if a ZES runsv service is running. Services: r9, hermes, codex, dashboard8083, ttyd, tor, chromium-cdp, zeschrome-mcp",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Service name (e.g. r9, hermes, dashboard8083)" }
+        },
+        required: ["name"]
+      },
+      execute: async (args) => {
+        const { execSync } = await import("child_process");
+        try {
+          const out = execSync("sv status /data/data/com.termux/files/usr/var/service/" + args.name + " 2>&1").toString().trim();
+          const running = out.startsWith("run:");
+          return { content: [{ type: "text", text: running ? "✅ " + args.name + " is running" : "❌ " + args.name + " is stopped\\n" + out }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: "❌ " + args.name + ": " + e.message }], isError: true };
+        }
+      }
+    });
+
+    this.register("list_services", {
+      name: "list_services",
+      description: "List all ZES runsv services and their status",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      execute: async () => {
+        const { execSync } = await import("child_process");
+        try {
+          const out = execSync("sv status /data/data/com.termux/files/usr/var/service/* 2>&1").toString().trim();
+          return { content: [{ type: "text", text: out || "(no services)" }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: "Error: " + e.message }], isError: true };
+        }
+      }
+    });
+
+    this.register("get_service_logs", {
+      name: "get_service_logs",
+      description: "Get recent logs from a ZES service",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Service name (e.g. r9, hermes-gateway)" },
+          lines: { type: "number", description: "Number of recent log lines (default: 30)" }
+        },
+        required: ["name"]
+      },
+      execute: async (args) => {
+        const { execSync } = await import("child_process");
+        const lines = args.lines || 30;
+        const logDir = "/data/data/com.termux/files/usr/var/log/sv/" + args.name;
+        try {
+          const out = execSync("tail -" + lines + " " + logDir + "/current 2>&1 || echo \"(no logs found)\"").toString().trim();
+          return { content: [{ type: "text", text: out || "(empty)" }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: "Error reading logs: " + e.message }], isError: true };
+        }
+      }
+    });
+
+    this.register("run_health_evals", {
+      name: "run_health_evals",
+      description: "Run ZES service health evals and return results as JSON",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      execute: async () => {
+        const { execSync } = await import("child_process");
+        try {
+          const out = execSync("python3 /data/data/com.termux/files/home/Zes-System/scripts/run-evals.py service-health 2>&1").toString().trim();
+          return { content: [{ type: "text", text: out }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: "Error running evals: " + e.message }], isError: true };
+        }
+      }
+    });
   }
 }

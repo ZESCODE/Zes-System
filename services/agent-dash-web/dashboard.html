@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3, user-scalable=yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>ZES Agent Dashboard</title>
+<style>
+/* ─── Reset ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; min-height: 100vh;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────────── */
+.container { max-width: 800px; margin: 0 auto; padding: 12px 16px 80px; }
+.header {
+  padding: 16px 0; margin-bottom: 16px;
+  border-bottom: 1px solid #30363d;
+}
+.header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.header h1 span { font-size: 24px; }
+.header .subtitle { font-size: 12px; color: #8b949e; margin-top: 4px; }
+.header .status {
+  display: inline-block; font-size: 11px; padding: 2px 8px;
+  border-radius: 10px; background: #1c2128; color: #8b949e; margin-top: 6px;
+}
+
+/* ─── Agent Cards ────────────────────────────────────────────────────── */
+.agent-card {
+  background: #161b22; border: 1px solid #30363d;
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  transition: border-color 0.2s;
+}
+.agent-card:active { border-color: #58a6ff; }
+.agent-card .top {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.agent-card .dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.agent-card .dot.running { background: #3fb950; }
+.agent-card .dot.paused { background: #d29922; }
+.agent-card .dot.idle { background: #8b949e; }
+.agent-card .dot.error { background: #f85149; }
+.agent-card .name { font-weight: 600; font-size: 14px; flex: 1; }
+.agent-card .model {
+  font-size: 11px; color: #8b949e; background: #0d1117;
+  padding: 2px 8px; border-radius: 8px;
+}
+.agent-card .task {
+  font-size: 13px; color: #8b949e; margin-bottom: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.agent-card .stats {
+  display: flex; gap: 12px; font-size: 11px; color: #8b949e;
+}
+.agent-card .stats b { color: #e6edf3; }
+
+/* ─── Conversation Panel ─────────────────────────────────────────────── */
+.conversation {
+  background: #161b22; border: 1px solid #30363d;
+  border-radius: 10px; margin-bottom: 10px; display: none;
+}
+.conversation.open { display: block; }
+.conversation .header {
+  padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+  cursor: pointer; border-bottom: 1px solid #30363d; margin: 0;
+}
+.conversation .header .back { font-size: 18px; cursor: pointer; }
+.conversation .messages { padding: 12px 16px; max-height: 60vh; overflow-y: auto; }
+.msg {
+  padding: 10px 12px; margin-bottom: 8px;
+  border-radius: 8px; font-size: 13px; line-height: 1.5;
+}
+.msg.user { background: #1f2937; }
+.msg.assistant { background: #0d1117; border: 1px solid #30363d; }
+.msg .role-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 4px; display: block;
+}
+.msg.user .role-tag { color: #58a6ff; }
+.msg.assistant .role-tag { color: #3fb950; }
+.msg pre {
+  background: #0d1117; padding: 8px; border-radius: 6px;
+  overflow-x: auto; font-size: 12px; margin: 6px 0;
+  border: 1px solid #21262d;
+}
+.msg code { font-size: 12px; }
+.msg .tool-call {
+  background: #1c2128; padding: 8px; border-radius: 6px; margin: 6px 0;
+  font-size: 12px; border-left: 3px solid #58a6ff;
+}
+
+/* ─── Chat Input ──────────────────────────────────────────────────────── */
+.chat-input-area {
+  display: none; padding: 12px 16px; border-top: 1px solid #30363d;
+}
+.chat-input-area.open { display: flex; gap: 8px; }
+.chat-input-area input {
+  flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid #30363d;
+  background: #0d1117; color: #e6edf3; font-size: 14px; outline: none;
+}
+.chat-input-area input:focus { border-color: #58a6ff; }
+.chat-input-area button {
+  padding: 10px 16px; border-radius: 8px; border: none;
+  background: #238636; color: #fff; font-weight: 600; font-size: 13px;
+  white-space: nowrap; cursor: pointer;
+}
+.chat-input-area button:active { background: #2ea043; }
+
+/* ─── Loading & Empty ─────────────────────────────────────────────────── */
+.loading, .empty {
+  text-align: center; padding: 40px 20px; color: #8b949e;
+}
+.loading .spinner {
+  width: 28px; height: 28px; border: 3px solid #30363d;
+  border-top-color: #58a6ff; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Bottom Nav Bar ─────────────────────────────────────────────────── */
+#bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px 12px; padding-bottom: max(8px, env(safe-area-inset-bottom));
+  background: rgba(13, 17, 23, 0.95);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid #30363d;
+  z-index: 100;
+}
+.nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  flex: 1; padding: 6px; border: none; background: transparent;
+  color: #8b949e; font-size: 10px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.nav-btn svg { width: 22px; height: 22px; }
+.nav-btn.active { color: #58a6ff; }
+.nav-btn:active { color: #58a6ff; }
+
+/* ─── Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .container { padding: 8px 10px 70px; }
+  .header h1 { font-size: 18px; }
+  .agent-card { padding: 12px 14px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="container">
+    <div class="header">
+      <h1><span>🤖</span> Agent Dashboard</h1>
+      <div class="subtitle">ZES System — AI Agent Monitor</div>
+      <div class="status" id="status-bar">Connecting…</div>
+    </div>
+    <div id="content">
+      <div class="loading" id="loading"><div class="spinner"></div>Loading agents…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<div id="bottom-nav">
+  <button class="nav-btn active" id="nav-agents" data-view="agents">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-.83 0-1.5-.67-1.5-1.5S11.17 14 12 14s1.5.67 1.5 1.5S12.83 17 12 17zm1-5h-2V7h2v5z"/></svg>
+    <span>Agents</span>
+  </button>
+  <button class="nav-btn" id="nav-chat" data-view="chat">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
+    <span>Chat</span>
+  </button>
+  <button class="nav-btn" id="nav-refresh" data-view="refresh">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.65 6.35A7.96 7.96 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    <span>Refresh</span>
+  </button>
+  <button class="nav-btn" id="nav-tools" data-view="tools">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+    <span>VS Code</span>
+  </button>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const API = window.ENV_API || "";
+  const content = document.getElementById("content");
+  const loading = document.getElementById("loading");
+  const statusBar = document.getElementById("status-bar");
+  let agents = [];
+
+  // ─── Fetch state ─────────────────────────────────────────────────────
+  async function fetchState() {
+    try {
+      const r = await fetch(API + "/api/state");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      agents = data.agents || [];
+      updateStatus(data);
+      renderAgents();
+      return data;
+    } catch (e) {
+      statusBar.textContent = "⚠️ Offline — " + e.message;
+      content.innerHTML = '<div class="empty">Cannot reach Agent Dashboard.<br>Make sure the daemon is running on port 8002.</div>';
+    }
+  }
+
+  function updateStatus(data) {
+    const count = (data.agents || []).length;
+    const uptime = data.uptime ? Math.floor(data.uptime / 60) + "m" : "?";
+    statusBar.textContent = "🟢 Online · " + count + " agent" + (count !== 1 ? "s" : "") + " · uptime " + uptime;
+  }
+
+  // ─── Render Agents ───────────────────────────────────────────────────
+  function renderAgents() {
+    loading.style.display = "none";
+    if (!agents.length) {
+      content.innerHTML = '<div class="empty">No active agents detected.<br>Start Codex, Claude, or Copilot to see them here.</div>';
+      return;
+    }
+
+    let html = "";
+    for (const a of agents) {
+      const status = a.status || "running";
+      const dotClass = status === "running" ? "running" : status === "paused" ? "paused" : "idle";
+      const model = a.model && a.model !== "\u2014" ? a.model : "—";
+      const tokens = a.tokens || 0;
+      const elapsed = a.elapsed && a.elapsed !== "\u2014" ? a.elapsed : formatElapsed(a.startTime);
+      const task = a.task || a.name || "Running";
+      const id = a.id || "";
+
+      html += '<div class="agent-card" data-agent-id="' + id + '" onclick="openChat(\'' + id + '\', \'' + (a.name || '').replace(/'/g, "\\'") + '\')">';
+      html += '<div class="top">';
+      html += '<div class="dot ' + dotClass + '"></div>';
+      html += '<div class="name">' + (a.typeLabel || a.type || "Agent") + '</div>';
+      html += '<div class="model">' + model + '</div>';
+      html += '</div>';
+      html += '<div class="task">' + task + '</div>';
+      html += '<div class="stats">';
+      html += 'Tokens: <b>' + tokens.toLocaleString() + '</b>';
+      html += ' · Elapsed: <b>' + elapsed + '</b>';
+      if (a.location) html += ' · ' + a.location;
+      html += '</div>';
+      html += '</div>';
+    }
+    content.innerHTML = html;
+  }
+
+  function formatElapsed(ts) {
+    if (!ts) return "—";
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return sec + "s";
+    const m = Math.floor(sec / 60);
+    if (m < 60) return m + "m " + (sec % 60) + "s";
+    const h = Math.floor(m / 60);
+    return h + "h " + (m % 60) + "m";
+  }
+
+  // ─── Conversation Chat ───────────────────────────────────────────────
+  let activeChatId = null;
+
+  window.openChat = function(id, name) {
+    activeChatId = id;
+    const convHtml = '<div class="conversation open" id="conv-panel">' +
+      '<div class="header"><span class="back" onclick="closeChat()">←</span> Chat with <b>' + (name || id.slice(0, 16)) + '</b></div>' +
+      '<div class="messages" id="conv-msgs"><div class="loading" style="padding:20px"><div class="spinner"></div>Loading conversation…</div></div>' +
+      '<div class="chat-input-area open" id="chat-input"><input type="text" id="chat-msg" placeholder="Type a message…" onkeydown="if(event.key===\'Enter\')sendMsg()"><button onclick="sendMsg()">Send</button></div>' +
+      '</div>';
+
+    // Insert conversation above cards
+    const container = document.querySelector(".container");
+    // Remove existing conversation panel
+    const existing = document.getElementById("conv-panel");
+    if (existing) existing.remove();
+
+    // Insert after header
+    const header = container.querySelector(".header");
+    header.insertAdjacentHTML("afterend", convHtml);
+
+    // Load conversation
+    loadConversation(id);
+  };
+
+  window.closeChat = function() {
+    const panel = document.getElementById("conv-panel");
+    if (panel) panel.remove();
+    activeChatId = null;
+  };
+
+  async function loadConversation(id) {
+    try {
+      const r = await fetch(API + "/api/agents/" + encodeURIComponent(id) + "/conversation");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      const messages = data.turns || data.messages || [];
+      const container = document.getElementById("conv-msgs");
+      if (!container) return;
+
+      if (!messages.length) {
+        container.innerHTML = '<div class="empty">No conversation history yet.</div>';
+        return;
+      }
+
+      let html = "";
+      for (const msg of messages) {
+        const role = msg.role || "assistant";
+        const content = msg.content || msg.text || "";
+        html += renderMessage(role, content, msg);
+      }
+      container.innerHTML = html;
+      container.scrollTop = container.scrollHeight;
+    } catch (e) {
+      const container = document.getElementById("conv-msgs");
+      if (container) container.innerHTML = '<div class="empty">Failed to load conversation: ' + e.message + '</div>';
+    }
+  }
+
+  function renderMessage(role, content, msg) {
+    let html = '<div class="msg ' + role + '">';
+    html += '<span class="role-tag">' + (role === "user" ? "You" : "Agent") + '</span>';
+
+    // Format content - handle code blocks
+    const formatted = content
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\n/g, "<br>");
+
+    html += formatted;
+
+    // Show tool calls if present
+    if (msg.toolCalls && msg.toolCalls.length) {
+      for (const tc of msg.toolCalls) {
+        html += '<div class="tool-call">🔧 ' + (tc.name || tc.tool || "tool") + ': ' +
+          (tc.input ? JSON.stringify(tc.input).slice(0, 100) : "") + '</div>';
+      }
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  window.sendMsg = function() {
+    const input = document.getElementById("chat-msg");
+    if (!input || !input.value.trim() || !activeChatId) return;
+
+    const msg = input.value.trim();
+    input.value = "";
+
+    // Add user message to UI immediately
+    const container = document.getElementById("conv-msgs");
+    if (container) {
+      container.innerHTML += renderMessage("user", msg, {});
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Send to API
+    fetch(API + "/api/agents/" + encodeURIComponent(activeChatId) + "/input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: msg }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() {
+      // Reload conversation after a short delay
+      setTimeout(function() { loadConversation(activeChatId); }, 1000);
+    })
+    .catch(function(e) {
+      if (container) {
+        container.innerHTML += '<div class="msg assistant"><span class="role-tag">Error</span>Failed: ' + e.message + '</div>';
+      }
+    });
+  };
+
+  // ─── Navigation ──────────────────────────────────────────────────────
+  document.querySelectorAll(".nav-btn").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      const view = btn.dataset.view;
+      if (view === "refresh") {
+        fetchState();
+        return;
+      }
+      if (view === "tools") {
+        window.open("http://" + location.hostname + ":8000", "_blank");
+        return;
+      }
+      // Simple nav highlight
+      document.querySelectorAll(".nav-btn").forEach(function(b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+    });
+  });
+
+  // ─── Auto-refresh ────────────────────────────────────────────────────
+  fetchState();
+  setInterval(fetchState, 5000);
+
+  console.log("[ZES Agent Dash] Loaded");
+})();
+</script>
+</body>
+</html>

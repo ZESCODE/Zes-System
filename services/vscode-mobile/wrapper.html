@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ZES Code">
+<title>ZES Code — Mobile v3</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#1e1e1e;font-family:system-ui,-apple-system,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none;position:fixed;top:0;left:0;right:0;bottom:0}
+
+/* ─── Main layout: panel on top, editor below ─── */
+#app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+/* Panel toggle button at top */
+#panel-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; height: 32px;
+  background: rgba(30,30,36,0.95);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  transition: transform 0.25s ease;
+}
+#panel-bar.hidden { transform: translateY(-100%); }
+
+.pb-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; height: 26px; border: none; border-radius: 6px;
+  background: transparent; color: #bbb; font-size: 11px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  white-space: nowrap;
+}
+.pb-btn:active { background: rgba(255,255,255,0.1); }
+.pb-btn.active { background: rgba(88,140,255,0.2); color: #588cff; }
+.pb-title { color: #888; font-size: 11px; font-weight: 600; margin-right: auto; }
+
+/* ─── VS Code iframe ─── */
+#zes-iframe {
+  flex: 1; width: 100%; border: none; background: #1e1e1e;
+  margin-top: 32px; /* panel bar height */
+}
+
+/* ─── Bottom toolbar ─── */
+#zes-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 99999;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 8px; height: 44px;
+  background: rgba(30,30,36,0.95);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.zes-btn {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 36px; height: 34px; border: none; border-radius: 8px;
+  background: transparent; color: #bbb; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.15s; font-size: 16px;
+}
+.zes-btn:active { background: rgba(255,255,255,0.12); transform: scale(0.92); }
+.zes-btn.active { background: rgba(88,140,255,0.25); color: #588cff; }
+.zes-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.08); margin: 0 4px; flex-shrink: 0; }
+.zes-lbl { color: #888; font-size: 11px; font-weight: 600; padding: 0 4px; white-space: nowrap; }
+
+/* ─── Loading ─── */
+#zes-loading {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  color: #888; font-size: 14px; z-index: 1; text-align: center;
+}
+#zes-loading .spinner {
+  width: 32px; height: 32px;
+  border: 3px solid rgba(255,255,255,0.1); border-top-color: #588cff;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Toast ─── */
+#zes-toast {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) scale(0.8);
+  background: rgba(0,0,0,0.85); color: #fff; padding: 10px 20px;
+  border-radius: 10px; font-size: 15px; font-weight: 600;
+  z-index: 9999999; opacity: 0; transition: all 0.2s ease; pointer-events: none;
+}
+#zes-toast.show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+
+/* ─── Responsive ─── */
+@media(max-width:420px){
+  .pb-btn { font-size: 10px; padding: 2px 6px; }
+  #zes-bar { padding: 4px 4px; gap: 1px; height: 40px; }
+  .zes-btn { min-width: 32px; height: 30px; font-size: 14px; }
+}
+</style>
+</head>
+<body>
+
+<div id="zes-loading"><div class="spinner"></div><span id="loading-text">Loading VS Code…</span></div>
+
+<div id="app">
+  <!-- Top panel bar -->
+  <div id="panel-bar">
+    <span class="pb-title">📱 VS Code Mobile</span>
+    <button class="pb-btn active" data-panel="terminal" onclick="focusPanel('terminal')">⌨ Terminal</button>
+    <button class="pb-btn" data-panel="problems" onclick="focusPanel('problems')">⚠ Problems</button>
+    <button class="pb-btn" data-panel="output" onclick="focusPanel('output')">📋 Output</button>
+    <button class="pb-btn" onclick="togglePanel()">▽ Panel</button>
+  </div>
+
+  <!-- VS Code iframe -->
+  <iframe id="zes-iframe" src="/?__vscode=1" 
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-storage-access-by-user-activation">
+  </iframe>
+</div>
+
+<!-- Bottom toolbar -->
+<div id="zes-bar">
+  <button class="zes-btn" id="btn-explorer" title="Toggle Sidebar">📂</button>
+  <button class="zes-btn" id="btn-command" title="Command Palette">⌘</button>
+  <button class="zes-btn" id="btn-search" title="Search">🔍</button>
+  <div class="zes-sep"></div>
+  <button class="zes-btn" id="btn-zoom-out" title="Zoom Out">🔍-</button>
+  <span class="zes-lbl" id="zoom-label">100%</span>
+  <button class="zes-btn" id="btn-zoom-in" title="Zoom In">🔍+</button>
+  <button class="zes-btn" id="btn-zoom-reset" title="Reset Zoom">⟲</button>
+  <div class="zes-sep"></div>
+  <button class="zes-btn" id="btn-sidebar" title="Explorer Sidebar">📁</button>
+  <button class="zes-btn" id="btn-panel-toggle" title="Toggle Panel">▤</button>
+  <div class="zes-sep"></div>
+  <button class="zes-btn" id="btn-fullscreen" title="Full Screen">⛶</button>
+  <button class="zes-btn" id="btn-reload" title="Reload">↻</button>
+</div>
+
+<!-- Toast -->
+<div id="zes-toast"></div>
+
+<script>
+(function() {
+  const D = document;
+  const iframe = D.getElementById('zes-iframe');
+  const loading = D.getElementById('zes-loading');
+  const loadingText = D.getElementById('loading-text');
+  const bar = D.getElementById('zes-bar');
+  const panelBar = D.getElementById('panel-bar');
+  const toast = D.getElementById('zes-toast');
+  const zoomLabel = D.getElementById('zoom-label');
+
+  let zoom = 1.0;
+  const STEP = 0.1;
+  let vscodeReady = false;
+  let pinDist = null;
+  let pinZoom = null;
+  let panelVisible = true;
+
+  // ─── Toast ─────────────────────────────────────────────────────
+  function toastMsg(msg, duration) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => toast.classList.remove('show'), duration || 2000);
+  }
+
+  // ─── Send command to VS Code ───────────────────────────────────
+  function vsCodeCmd(cmd) {
+    try {
+      if (iframe.contentWindow && iframe.contentWindow.vscode) {
+        iframe.contentWindow.vscode.executeCommand(cmd);
+        return true;
+      }
+      // Fallback: keyboard shortcut
+      if (iframe.contentWindow) {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.postMessage({ type: 'executeCommand', command: cmd }, '*');
+      }
+    } catch(e) { /* ignore cross-origin */ }
+    return false;
+  }
+
+  // ─── Zoom ──────────────────────────────────────────────────────
+  function setZoom(v) {
+    zoom = Math.max(0.3, Math.min(3.0, v));
+    iframe.style.transform = 'scale(' + zoom + ')';
+    iframe.style.transformOrigin = 'center top';
+    var pct = Math.round(zoom * 100);
+    zoomLabel.textContent = pct + '%';
+  }
+
+  D.getElementById('btn-zoom-in').addEventListener('click', function(){ setZoom(zoom + STEP); });
+  D.getElementById('btn-zoom-out').addEventListener('click', function(){ setZoom(zoom - STEP); });
+  D.getElementById('btn-zoom-reset').addEventListener('click', function(){ setZoom(1.0); toastMsg('Zoom reset'); });
+
+  // ─── Panel controls ────────────────────────────────────────────
+  window.togglePanel = function() {
+    panelVisible = !panelVisible;
+    vsCodeCmd('workbench.action.togglePanel');
+    toastMsg(panelVisible ? 'Panel shown' : 'Panel hidden');
+  };
+
+  window.focusPanel = function(panel) {
+    var cmds = {
+      terminal: 'workbench.action.terminal.focus',
+      problems: 'workbench.action.problems.focus',
+      output: 'workbench.action.output.toggleOutput'
+    };
+    if (cmds[panel]) {
+      vsCodeCmd(cmds[panel]);
+      toastMsg('Focus: ' + panel);
+      // Highlight active button
+      D.querySelectorAll('.pb-btn[data-panel]').forEach(function(b) {
+        b.classList.toggle('active', b.getAttribute('data-panel') === panel);
+      });
+    }
+  };
+
+  // ─── Toolbar actions ───────────────────────────────────────────
+  D.getElementById('btn-explorer').addEventListener('click', function(){
+    vsCodeCmd('workbench.view.explorer');
+    toastMsg('Explorer');
+  });
+
+  D.getElementById('btn-command').addEventListener('click', function(){
+    vsCodeCmd('workbench.action.showCommands');
+    toastMsg('Command Palette');
+  });
+
+  D.getElementById('btn-search').addEventListener('click', function(){
+    vsCodeCmd('workbench.action.findInFiles');
+    toastMsg('Search in Files');
+  });
+
+  D.getElementById('btn-sidebar').addEventListener('click', function(){
+    vsCodeCmd('workbench.action.toggleSidebarVisibility');
+    toastMsg('Toggle Sidebar');
+  });
+
+  D.getElementById('btn-panel-toggle').addEventListener('click', function(){
+    vsCodeCmd('workbench.action.togglePanel');
+    panelVisible = !panelVisible;
+    toastMsg(panelVisible ? 'Panel shown' : 'Panel hidden');
+  });
+
+  D.getElementById('btn-fullscreen').addEventListener('click', function(){
+    if (!D.fullscreenElement) {
+      D.documentElement.requestFullscreen().catch(function(){});
+    } else {
+      D.exitFullscreen().catch(function(){});
+    }
+  });
+
+  D.getElementById('btn-reload').addEventListener('click', function(){
+    toastMsg('Reloading...');
+    setTimeout(function(){ iframe.src = iframe.src; }, 300);
+  });
+
+  // ─── Auto-hide bars on scroll ──────────────────────────────────
+  var lastTouchY = 0;
+  D.addEventListener('touchstart', function(e) {
+    lastTouchY = e.touches[0].clientY;
+    bar.classList.remove('hide');
+    panelBar.classList.remove('hidden');
+  }, { passive: true });
+
+  D.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - lastTouchY;
+    if (dy < -30) { 
+      // Scrolling down - hide bars
+    }
+  }, { passive: true });
+
+  // ─── Waiting for VS Code to load ───────────────────────────────
+  function waitForVSCode() {
+    var attempts = 0;
+    var iv = setInterval(function(){
+      attempts++;
+      try {
+        if (iframe.contentWindow && iframe.contentWindow.vscode && 
+            iframe.contentWindow.vscode.executeCommand) {
+          clearInterval(iv);
+          vscodeReady = true;
+          loading.style.display = 'none';
+          // Set panel position to top
+          setTimeout(function(){
+            vsCodeCmd('workbench.action.setPanelPosition', 'top');
+          }, 1000);
+          return;
+        }
+      } catch(e) {}
+      if (attempts > 60) {
+        clearInterval(iv);
+        loading.style.display = 'none';
+      }
+    }, 500);
+  }
+
+  // ─── Load timeout ──────────────────────────────────────────────
+  var loadingTimeout = setTimeout(function(){
+    loadingText.textContent = 'Still loading… tap to retry';
+    loading.style.cursor = 'pointer';
+    loading.onclick = function(){
+      loadingText.textContent = 'Reconnecting…';
+      loading.onclick = null; loading.style.cursor = '';
+      iframe.src = iframe.src;
+      setTimeout(waitForVSCode, 1000);
+    };
+  }, 20000);
+
+  iframe.addEventListener('load', function(){
+    clearTimeout(loadingTimeout);
+    setZoom(0.6); // Start zoomed out for mobile view
+    waitForVSCode();
+  });
+
+  // ─── Initial zoom ──────────────────────────────────────────────
+  var initZoom = (window.innerWidth < 600) ? 0.55 : 1.0;
+  setZoom(initZoom);
+
+  console.log('[ZES Mobile v3] Panel on top, single-column layout');
+  console.log('[ZES Mobile v3] Zoom:', Math.round(initZoom * 100) + '%');
+
+})();
+</script>
+</body>
+</html>

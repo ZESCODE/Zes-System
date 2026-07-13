@@ -5,7 +5,9 @@
 ```bash
 sv restart dashboard8083       # Restart dashboard
 sv restart hermes-gateway      # Restart Hermes
-sv restart opencode            # Restart OpenCode
+claude --version              # Check Claude Code
+claude -p "task"               # Run Claude Code prompt
+sv restart claude-proxy        # Restart Claude proxy
 sv restart cmdop-agent         # Restart CMDOP agent
 sv restart chromium-cdp        # Restart browser
 sv restart sshd                # Restart SSH
@@ -24,7 +26,7 @@ sv restart tor                 # Restart Tor
 | 8787 | Hermes WebUI | http://localhost:8787 |
 | 9050 | Tor SOCKS5 | socks5://127.0.0.1:9050 |
 | 9222 | Browser CDP | http://localhost:9222 |
-| 9876 | OpenCode Server | http://localhost:9876 |
+| 5905 | Claude Code Proxy | http://localhost:5905 |
 | 20128 | 9Router | http://localhost:20128 |
 
 ## Key Files
@@ -35,7 +37,7 @@ sv restart tor                 # Restart Tor
 | `~/.9router/db/data.sqlite` | 9router provider DB |
 | `~/.hermes/config.yaml` | Hermes AI configuration |
 | `~/.hermes/.env` | Hermes API keys |
-| `~/.config/opencode/opencode.json` | OpenCode configuration |
+| `/usr/local/bin/claude` | Claude Code 2.1.207 binary (proot) |
 | `~/.config/composio/env.sh` | Composio API key |
 | `~/.config/composio/gmail.json` | Gmail connection details |
 | `~/dashboard_v2.py` | Dashboard source code |
@@ -81,7 +83,7 @@ sv status /data/data/com.termux/files/usr/var/service/*
 # Port check
 python3 -c "
 import socket
-for name,port in [('Codex',5900),('Hermes',8787),('9Router',20128),('OpenCode',9876),('Tor',9050)]:
+for name,port in [('Codex',5900),('Hermes',8787),('9Router',20128),('Claude Code',5905),('Tor',9050)]:
     s=socket.socket(); s.settimeout(0.5)
     r=s.connect_ex(('127.0.0.1',port))
     print(f\"{'UP' if r==0 else 'DOWN'}: {name} :{port}\"); s.close()
@@ -90,4 +92,52 @@ for name,port in [('Codex',5900),('Hermes',8787),('9Router',20128),('OpenCode',9
 # Gmail check
 gmail-tool status
 composio-gmail list 3
+```
+
+
+## Orchestrator Commands
+
+```bash
+# System start/stop
+./start.sh              # Start all 25 services
+./stop.sh               # Stop all services gracefully
+./stop.sh --force       # Force stop all services
+
+# ZES CLI
+zes menu                # Interactive TUI menu
+zes start               # Start all services
+zes stop                # Stop all services
+zes status              # Show all services + health
+zes health              # Run test suite
+zes mcp list            # List MCP tools
+zes restart <svc>       # Restart a service
+zes logs <svc> [lines]  # Tail service logs
+zes backup              # Snapshot configs
+
+# Claude Code delegation
+claude-code-exec.sh "task" [model]           # Delegate to Claude Code
+claude-session-reader.sh status              # Check Claude Code session
+claude-session-reader.sh ask "question"      # Ask Claude Code
+
+# Model switching
+9router-switch-model.sh list                 # All models from 18 providers
+9router-switch-model.sh providers            # Active providers
+9router-switch-model.sh switch <model>       # Change Claude Code model
+9router-switch-model.sh switch <model> --restart  # Change + restart Claude
+9router-switch-model.sh smart <task-type>    # Best model for task
+
+# Cron management
+hermes-cron-manager.sh list                  # List cron jobs
+hermes-cron-manager.sh create <name> <prompt> <schedule>  # Create job
+hermes-cron-notify.sh status                 # Show cron status
+hermes-cron-notify.sh failed                 # Show failed jobs only
+hermes-cron-notify.sh telegram               # Send via Telegram
+```
+
+## Dashboard API
+
+```bash
+curl localhost:8083/api/status      # All services + MCP + providers
+curl localhost:8083/api/cron        # Cron jobs with recent results
+curl localhost:8083/api/cron/notify # Trigger notification broadcast
 ```

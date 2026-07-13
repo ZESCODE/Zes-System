@@ -1,0 +1,8 @@
+{
+  "name": "agent-dash-web",
+  "version": "1.0.0",
+  "description": "Agent Dashboard web frontend for ZES System",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {}
+}

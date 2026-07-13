@@ -5,7 +5,7 @@ echo ""
 
 # Check services
 echo "--- Services ---"
-for svc in codex ttyd socat hermes opencode tor sshd; do
+for svc in codex ttyd socat hermes claude tor sshd; do
   if command -v sv &>/dev/null; then
     sv status $svc 2>/dev/null | grep -q "run:" && echo "  🟢 $svc" || echo "  🔴 $svc"
   fi

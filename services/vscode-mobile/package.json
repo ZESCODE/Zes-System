@@ -1,0 +1,14 @@
+{
+  "name": "vscode-mobile",
+  "version": "1.0.0",
+  "description": "ZES Remote Agent Control — Chat interface for Cline/Continue/Windsurf",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "http-proxy": "^1.18.1"
+  },
+  "type": "module"
+}

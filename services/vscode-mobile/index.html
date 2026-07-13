@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+<title>ZES Remote Agent — Code Control</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; }
+  #app { height: 100vh; max-height: 100dvh; }
+  .msg { max-width: 88%; white-space: pre-wrap; word-wrap: break-word; animation: fadeIn .2s ease; }
+  #chat-area::-webkit-scrollbar { width: 4px; }
+  #chat-area::-webkit-scrollbar-thumb { background: oklch(0.3 0 0); border-radius: 2px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+  .typing-dot { width: 6px; height: 6px; border-radius: 50%; animation: bounce 1.4s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: .2s; }
+  .typing-dot:nth-child(3) { animation-delay: .4s; }
+</style>
+</head>
+<body class="bg-base-300">
+<div id="app" class="flex">
+  <div class="drawer lg:drawer-open">
+    <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content flex flex-col">
+
+      <!-- ─── Header ─── -->
+      <div class="navbar bg-base-100 border-b border-base-300 min-h-[48px] px-2">
+        <div class="flex-1 flex items-center gap-2">
+          <label for="main-drawer" class="btn btn-square btn-ghost lg:hidden" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-5 h-5 stroke-current"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          </label>
+          <span class="text-sm font-bold">🔌 ZES Remote Agent</span>
+        </div>
+        <div class="flex gap-1 items-center">
+          <!-- Pairing Code -->
+          <button id="btn-pairing" class="btn btn-ghost btn-xs gap-1" onclick="showPairing()">
+            <span class="text-xs">🔑</span>
+            <span id="pairing-display" class="text-xs font-mono">--</span>
+          </button>
+          <!-- Agent Selector -->
+          <select id="agent-select" class="select select-ghost select-xs w-auto max-w-[120px]">
+            <option value="ai">🤖 AI Chat</option>
+            <option value="cline">⚡ Cline</option>
+            <option value="continue">▶️ Continue</option>
+            <option value="codeium">🌊 Codeium</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ─── Chat Area ─── -->
+      <div id="chat-area" class="flex-1 overflow-y-auto p-3 space-y-2 bg-base-300">
+        <div id="welcome" class="text-center py-8 text-base-content/40">
+          <div class="text-3xl mb-2">🔌</div>
+          <div class="font-semibold text-base-content/60">ZES Remote Agent Control</div>
+          <div class="text-sm mt-1">Chat with AI or send commands to Cline/Continue agents</div>
+          <div class="text-xs mt-3 opacity-50">Type /help for commands · Select agent above</div>
+        </div>
+      </div>
+
+      <!-- ─── Input Area ─── -->
+      <div class="border-t border-base-300 bg-base-100 p-2">
+        <div class="flex items-end gap-2 max-w-4xl mx-auto">
+          <div class="dropdown dropdown-top">
+            <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square">📎</div>
+            <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box z-[60] p-2 shadow-lg w-52">
+              <li><a onclick="addContext('file')"><span class="text-lg">📄</span> File</a></li>
+              <li><a onclick="addContext('terminal')"><span class="text-lg">🖥</span> Terminal Output</a></li>
+              <li><a onclick="addContext('error')"><span class="text-lg">⚠️</span> Error Log</a></li>
+              <li><a onclick="addContext('clipboard')"><span class="text-lg">📋</span> Clipboard</a></li>
+            </ul>
+          </div>
+          <textarea id="chat-input" class="textarea textarea-bordered flex-1 min-h-[44px] max-h-[120px]" placeholder="Type a message... (/help)" rows="1"></textarea>
+          <button id="send-btn" class="btn btn-primary btn-sm">Send</button>
+        </div>
+        <!-- Model strip -->
+        <div class="flex items-center gap-1 mt-1 max-w-4xl mx-auto">
+          <span class="text-[10px] text-base-content/30">Model:</span>
+          <select id="model-select" class="select select-ghost select-xs flex-1">
+            <option value="gh/gpt-4o-mini">GPT-4o-mini</option>
+            <option value="gh/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+            <option value="groq/llama-3.3-70b-versatile">Groq Llama 3.3 70B</option>
+            <option value="groq/deepseek-v4">Groq DeepSeek V4</option>
+            <option value="gh/gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="groq/qwen-2.5-coder-32b">Qwen 2.5 Coder 32B</option>
+            <option value="mistral/mistral-small-3.1">Mistral Small 3.1</option>
+          </select>
+          <span id="vscode-status" class="badge badge-xs badge-ghost">VS: checking</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Drawer Sidebar ─── -->
+    <div class="drawer-side z-40">
+      <label for="main-drawer" class="drawer-overlay"></label>
+      <div class="menu p-3 w-72 min-h-full bg-base-200 text-base-content flex flex-col overflow-y-auto">
+        <div class="flex items-center justify-between mb-3 pb-2 border-b border-base-300">
+          <span class="text-sm font-bold text-primary">⚡ ZES Agent</span>
+          <label for="main-drawer" class="btn btn-ghost btn-sm btn-square lg:hidden">✕</label>
+        </div>
+
+        <!-- Actions -->
+        <div class="mb-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">Actions</span>
+          <ul class="menu menu-xs">
+            <li><a onclick="toggleToolbar()"><span class="text-base">🔧</span> Toggle Toolbar</a></li>
+            <li><a onclick="addContext('file')"><span class="text-base">📎</span> Context</a></li>
+            <li><a onclick="clearChat()"><span class="text-base">🗑</span> Clear Chat</a></li>
+            <li><a onclick="copyMessages()"><span class="text-base">📋</span> Copy Messages</a></li>
+          </ul>
+        </div>
+
+        <!-- System Tools -->
+        <div class="mb-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">System Tools</span>
+          <ul class="menu menu-xs">
+            <li><a onclick="systemStatus()"><span class="text-base">📊</span> System Status</a></li>
+            <li><a onclick="healthEval()"><span class="text-base">🏥</span> Health Evals</a></li>
+            <li><a onclick="backupConfig()"><span class="text-base">💾</span> Backup Config</a></li>
+            <li><a onclick="aiProviders()"><span class="text-base">🔌</span> AI Providers</a></li>
+            <li><a onclick="securityScan()"><span class="text-base">🛡️</span> Security Scan</a></li>
+            <li><a onclick="showMemory()"><span class="text-base">🧠</span> Memory</a></li>
+          </ul>
+        </div>
+
+        <!-- Slash Commands -->
+        <div class="mb-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">Slash Commands</span>
+          <ul class="menu menu-xs">
+            <li><a onclick="sendSlash('plan')"><span class="text-base">📋</span> /plan</a></li>
+            <li><a onclick="sendSlash('tdd')"><span class="text-base">🧪</span> /tdd</a></li>
+            <li><a onclick="sendSlash('code-review')"><span class="text-base">🔍</span> /code-review</a></li>
+            <li><a onclick="sendSlash('build-fix')"><span class="text-base">🔧</span> /build-fix</a></li>
+            <li><a onclick="sendSlash('verify')"><span class="text-base">✅</span> /verify</a></li>
+            <li><a onclick="sendSlash('refactor')"><span class="text-base">🔄</span> /refactor</a></li>
+            <li><a onclick="sendSlash('test')"><span class="text-base">🧪</span> /test</a></li>
+            <li><a onclick="sendSlash('docs')"><span class="text-base">📝</span> /docs</a></li>
+            <li><a onclick="sendSlash('debug')"><span class="text-base">🐛</span> /debug</a></li>
+            <li><a onclick="sendSlash('help')"><span class="text-base">❓</span> /help</a></li>
+          </ul>
+        </div>
+
+        <!-- Pairing -->
+        <div class="mb-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">Connection</span>
+          <ul class="menu menu-xs">
+            <li><a onclick="showPairing()"><span class="text-base">🔑</span> Pairing Code</a></li>
+            <li><a onclick="checkVSStatus()"><span class="text-base">💻</span> VS Code Status</a></li>
+            <li><a onclick="checkAgents()"><span class="text-base">🤖</span> Agent Status</a></li>
+          </ul>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="mb-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">Quick Links</span>
+          <ul class="menu menu-xs">
+            <li><a href="http://localhost:8083/" target="_blank"><span class="text-base">📊</span> Dashboard v4</a></li>
+            <li><a href="http://localhost:8084/" target="_blank"><span class="text-base">⚡</span> ZES Agent</a></li>
+            <li><a href="http://localhost:8787/" target="_blank"><span class="text-base">🪶</span> Hermes Agent</a></li>
+            <li><a href="http://localhost:8000/" target="_blank"><span class="text-base">💻</span> VS Code Server</a></li>
+            <li><a href="http://localhost:7173/" target="_blank"><span class="text-base">🖥</span> ttyd Terminal</a></li>
+            <li><a href="http://localhost:20128/" target="_blank"><span class="text-base">🌐</span> 9Router</a></li>
+          </ul>
+        </div>
+
+        <div class="mt-auto pt-2 border-t border-base-300 text-[10px] text-base-content/40">
+          ZES Remote Agent · v1 · Agent Bridge Protocol
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container" class="toast toast-end toast-bottom z-50"></div>
+
+<!-- Pairing Modal -->
+<dialog id="pairing-modal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">🔑 Pairing Code</h3>
+    <p class="py-2 text-sm">Share this code to pair with an external VS Code instance:</p>
+    <div class="text-center py-4">
+      <div id="pairing-code-display" class="text-4xl font-mono font-bold tracking-widest text-primary">------</div>
+      <div class="text-xs mt-2 text-base-content/40">Expires in 5 minutes</div>
+    </div>
+    <div class="modal-action">
+      <button class="btn btn-sm" onclick="renewPairing()">🔄 Renew</button>
+      <form method="dialog"><button class="btn btn-sm btn-primary">Close</button></form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function(){
+  const D = document;
+  const chatArea = D.getElementById('chat-area');
+  const welcome = D.getElementById('welcome');
+  const chatInput = D.getElementById('chat-input');
+  const sendBtn = D.getElementById('send-btn');
+  const modelSelect = D.getElementById('model-select');
+  const agentSelect = D.getElementById('agent-select');
+  const toast = D.getElementById('toast-container');
+  const pairingDisplay = D.getElementById('pairing-display');
+  const vscodeStatus = D.getElementById('vscode-status');
+
+  let messages = [];
+  let streaming = false;
+
+  // ─── Toast ───────────────────────────────────────────────────────
+  function showToast(msg, type='info') {
+    const t = D.createElement('div');
+    t.className = `alert alert-${type} shadow-lg text-sm py-2`;
+    t.innerHTML = msg;
+    toast.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // ─── Send message ────────────────────────────────────────────────
+  async function sendMessage(text) {
+    if (!text.trim() || streaming) return;
+    
+    // Handle slash commands
+    if (text.startsWith('/')) {
+      handleSlashCommand(text);
+      return;
+    }
+
+    welcome?.classList.add('hidden');
+    addMessage(text, 'user');
+    messages.push({ role: 'user', content: text });
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+
+    const agent = agentSelect.value;
+    
+    if (agent === 'ai') {
+      await streamResponse(messages);
+    } else {
+      await agentCommand(agent, text);
+    }
+  }
+
+  // ─── Stream response from 9Router ──────────────────────────────
+  async function streamResponse(msgs) {
+    streaming = true;
+    sendBtn.disabled = true;
+    const bubble = addMessage('', 'assistant typing');
+    let fullContent = '';
+
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: msgs, model: modelSelect.value })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                fullContent += parsed.content;
+                bubble.innerHTML = escapeHtml(fullContent);
+                chatArea.scrollTop = chatArea.scrollHeight;
+              }
+              if (parsed.error) {
+                bubble.innerHTML = `<span class="text-error">Error: ${escapeHtml(parsed.error)}</span>`;
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (e) {
+      bubble.innerHTML = `<span class="text-error">Connection error: ${escapeHtml(e.message)}</span>`;
+    }
+
+    bubble.className = 'msg bg-base-200 rounded-xl p-3 text-sm';
+    if (fullContent) messages.push({ role: 'assistant', content: fullContent });
+    streaming = false;
+    sendBtn.disabled = false;
+  }
+
+  // ─── Agent Command ──────────────────────────────────────────────
+  async function agentCommand(agent, text) {
+    const bubble = addMessage('Sending to ' + agent + '...', 'assistant');
+    try {
+      const resp = await fetch('/api/agent/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent, command: 'ask', args: { message: text } })
+      });
+      const data = await resp.json();
+      bubble.innerHTML = `<span class="opacity-70">[${agent}]</span> ${escapeHtml(data.output || JSON.stringify(data))}`;
+    } catch (e) {
+      bubble.innerHTML = `<span class="text-error">Agent error: ${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  // ─── Slash Commands ─────────────────────────────────────────────
+  function handleSlashCommand(text) {
+    const cmd = text.split(' ')[0].toLowerCase();
+    const args = text.slice(cmd.length).trim();
+    const prompts = {
+      '/plan': 'Create a detailed implementation plan for: ' + (args || 'the current task'),
+      '/tdd': 'Follow test-driven development for: ' + (args || 'the current feature'),
+      '/code-review': 'Review the code and provide feedback for: ' + (args || 'the current codebase'),
+      '/build-fix': 'Analyze and fix build errors for: ' + (args || 'the current project'),
+      '/verify': 'Run a full verification check on: ' + (args || 'the current system'),
+      '/refactor': 'Suggest and implement refactoring for: ' + (args || 'the current code'),
+      '/test': 'Write and run tests for: ' + (args || 'the current functionality'),
+      '/docs': 'Generate documentation for: ' + (args || 'the current code'),
+      '/debug': 'Debug the issue: ' + (args || 'the current problem'),
+      '/help': `Available commands:\n/plan - Create implementation plan\n/tdd - Test-driven development\n/code-review - Review code\n/build-fix - Fix build errors\n/verify - Full system check\n/refactor - Refactor code\n/test - Write tests\n/docs - Generate docs\n/debug - Debug issues\n/help - Show this help`
+    };
+
+    if (cmd === '/help') {
+      addMessage(prompts['/help'], 'assistant');
+      return;
+    }
+
+    const prompt = prompts[cmd];
+    if (prompt) {
+      welcome?.classList.add('hidden');
+      addMessage(text, 'user');
+      messages.push({ role: 'user', content: prompt });
+      chatInput.value = '';
+      if (agentSelect.value === 'ai') {
+        streamResponse(messages);
+      } else {
+        agentCommand(agentSelect.value, prompt);
+      }
+    } else {
+      showToast('Unknown command. Try /help', 'warning');
+    }
+  }
+
+  // ─── Add message bubble ─────────────────────────────────────────
+  function addMessage(text, type) {
+    const div = D.createElement('div');
+    div.className = `msg ${type === 'user' ? 'bg-primary text-primary-content ml-auto rounded-2xl rounded-tr-sm p-3 text-sm' : type === 'typing' ? 'bg-base-200 rounded-xl p-3 text-sm flex items-center gap-1' : 'bg-base-200 rounded-xl p-3 text-sm'}`;
+    
+    if (type === 'typing') {
+      div.innerHTML = '<div class="flex gap-1"><div class="typing-dot bg-current opacity-40"></div><div class="typing-dot bg-current opacity-40"></div><div class="typing-dot bg-current opacity-40"></div></div>';
+    } else if (type === 'user') {
+      const lines = text.split('\n');
+      div.innerHTML = lines.map(l => escapeHtml(l)).join('<br>');
+    }
+    
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return div;
+  }
+
+  // ─── System tools ───────────────────────────────────────────────
+  window.sendSlash = function(cmd) {
+    chatInput.value = '/' + cmd + ' ';
+    chatInput.focus();
+  };
+
+  window.clearChat = function() {
+    messages = [];
+    chatArea.querySelectorAll('.msg').forEach(el => el.remove());
+    welcome?.classList.remove('hidden');
+    showToast('Chat cleared');
+  };
+
+  window.copyMessages = function() {
+    const text = messages.map(m => `${m.role}: ${m.content}`).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => showToast('Copied!'));
+  };
+
+  window.toggleToolbar = function() { showToast('Toolbar toggled'); };
+
+  // System tool stubs
+  window.systemStatus = async function() {
+    welcome?.classList.add('hidden');
+    addMessage('📊 Checking system status...', 'assistant');
+    try {
+      const r = await fetch('/api/chat/direct', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [
+          { role: 'user', content: 'Show me the current ZES system status. Run: curl -s http://localhost:8083/api/status | python3 -m json.tool' }
+        ], model: modelSelect.value })
+      });
+      const d = await r.json();
+      messages.push({ role: 'user', content: 'Get system status' });
+      messages.push({ role: 'assistant', content: d.content || 'Status check initiated' });
+      addMessage(d.content || '✅ System status retrieved', 'assistant');
+    } catch(e) { addMessage('Error: ' + e.message, 'assistant'); }
+  };
+
+  window.healthEval = async function() {
+    welcome?.classList.add('hidden');
+    addMessage('🏥 Running health evaluations...', 'assistant');
+    try {
+      const r = await fetch('/api/tools/execute', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: 'run_command', args: { command: 'python3 ~/Zes-System/scripts/run-evals.py 2>&1 | head -40' } })
+      });
+      const d = await r.json();
+      addMessage(d.output || '✅ Health check complete', 'assistant');
+    } catch(e) { addMessage('Error: ' + e.message, 'assistant'); }
+  };
+
+  window.backupConfig = async function() {
+    addMessage('💾 Backing up config...', 'assistant');
+    try {
+      const r = await fetch('/api/tools/execute', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: 'run_command', args: { command: 'cp ~/.9router/auth/cli-secret ~/config-backup.txt 2>/dev/null; echo "Backup complete"' } })
+      });
+      const d = await r.json();
+      addMessage(d.output || '✅ Config backed up', 'assistant');
+    } catch(e) { addMessage('Error: ' + e.message, 'assistant'); }
+  };
+
+  window.aiProviders = async function() {
+    addMessage('🔌 Fetching AI providers...', 'assistant');
+    try {
+      const TOKEN = '6071e0697af17e38';
+      const r = await fetch('/api/tools/execute', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: 'run_command', args: { command: 'curl -s -H "x-9r-cli-token: 6071e0697af17e38" http://localhost:20128/api/providers | python3 -c \'import json,sys;d=json.load(sys.stdin);[print(f"{c.get(\\"provider\\",\\"?\\"):30s} | {c.get(\\"testStatus\\",\\"?\\")}") for c in d.get(\\"connections\\",[])]\' 2>/dev/null || echo "Failed"' } })
+      });
+      const d = await r.json();
+      addMessage('```\n' + (d.output || 'No providers found') + '\n```', 'assistant');
+    } catch(e) { addMessage('Error: ' + e.message, 'assistant'); }
+  };
+
+  window.securityScan = async function() {
+    addMessage('🛡️ Running security scan...', 'assistant');
+    try {
+      const r = await fetch('/api/chat/direct', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [
+          { role: 'user', content: 'Run a quick security scan of the ZES system. Check: 1) open ports 2) file permissions on config files 3) running services. Use: ss -tlnp, ls -la ~/.9router/auth/' }
+        ], model: modelSelect.value })
+      });
+      const d = await r.json();
+      addMessage(d.content || '✅ Security scan complete', 'assistant');
+    } catch(e) { addMessage('Error: ' + e.message, 'assistant'); }
+  };
+
+  window.showMemory = function() {
+    addMessage('🧠 **Memory**\nZES System Memory:\n- 9Router: 18 providers\n- VS Code: Port 8000\n- Cline: Configured with 9Router\n- Continue: Installed v2.0.0\n- Codeium: Installed v1.48.2\n- Dashboard: Port 8083\n- Agent UI: Port 8084\n- Hermes: Port 8787', 'assistant');
+  };
+
+  // ─── Pairing ────────────────────────────────────────────────────
+  window.showPairing = async function() {
+    try {
+      const r = await fetch('/api/pairing/code');
+      const d = await r.json();
+      D.getElementById('pairing-code-display').textContent = d.code;
+      pairingDisplay.textContent = d.code;
+    } catch {}
+    D.getElementById('pairing-modal').showModal();
+  };
+
+  window.renewPairing = async function() {
+    try {
+      const r = await fetch('/api/pairing/renew', { method: 'POST' });
+      const d = await r.json();
+      D.getElementById('pairing-code-display').textContent = d.code;
+      pairingDisplay.textContent = d.code;
+      showToast('New pairing code generated');
+    } catch {}
+  };
+
+  // ─── VS Code Status ─────────────────────────────────────────────
+  window.checkVSStatus = async function() {
+    try {
+      const r = await fetch('/api/vscode/status');
+      const d = await r.json();
+      vscodeStatus.textContent = d.online ? '✅ VS online' : '❌ VS offline';
+      vscodeStatus.className = `badge badge-xs ${d.online ? 'badge-success' : 'badge-error'}`;
+      showToast(d.online ? 'VS Code Server is online' : 'VS Code Server is offline');
+    } catch {
+      vscodeStatus.textContent = '❌ VS error';
+      vscodeStatus.className = 'badge badge-xs badge-error';
+    }
+  };
+
+  window.checkAgents = async function() {
+    try {
+      const r = await fetch('/api/tools/execute', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: 'get_agents', args: {} })
+      });
+      const d = await r.json();
+      const agents = d.agents || {};
+      let text = '**Agent Status:**\n';
+      text += `⚡ Cline: ${agents.cline?.configured ? '✅ Configured' : '❌ Not configured'}\n`;
+      text += `▶️ Continue: ${agents.continue?.installed ? '✅ Installed' : '❌ Not installed'}\n`;
+      text += `🌊 Codeium: ${agents.codeium?.installed ? '✅ Installed' : '❌ Not installed'}\n`;
+      addMessage(text, 'assistant');
+    } catch(e) {
+      addMessage('Error checking agents: ' + e.message, 'assistant');
+    }
+  };
+
+  // ─── Context ────────────────────────────────────────────────────
+  window.addContext = function(type) {
+    const prompts = {
+      file: '📄 Paste file path or content:',
+      terminal: '🖥 Paste terminal output:',
+      error: '⚠️ Paste error log:',
+      clipboard: '📋 Paste clipboard content:'
+    };
+    showToast(prompts[type] || 'Add context to your next message');
+  };
+
+  // ─── Utility ────────────────────────────────────────────────────
+  function escapeHtml(text) {
+    const d = D.createElement('div');
+    d.textContent = text;
+    return d.innerHTML.replace(/\n/g, '<br>').replace(/```([\s\S]*?)```/g, '<pre class="bg-base-300 p-2 rounded text-xs overflow-x-auto my-1">$1</pre>');
+  }
+
+  // ─── Event Listeners ────────────────────────────────────────────
+  sendBtn.addEventListener('click', () => sendMessage(chatInput.value));
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput.value); }
+  });
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+
+  // ─── Init ───────────────────────────────────────────────────────
+  async function init() {
+    try {
+      const r = await fetch('/api/pairing/code');
+      const d = await r.json();
+      pairingDisplay.textContent = d.code;
+    } catch {}
+    checkVSStatus();
+  }
+  init();
+})();
+</script>
+</body>
+</html>
