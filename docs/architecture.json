@@ -1,0 +1,1318 @@
+{
+  "name": "ZES System",
+  "version": "4.0",
+  "services": [
+    {
+      "id": "9router-proxy",
+      "name": "9Router Proxy",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "agent-dash",
+      "name": "Agent Dash",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "agent-dash-web",
+      "name": "Agent Dash Web",
+      "type": "service",
+      "language": "javascript",
+      "entry_point": "server.js",
+      "port": null,
+      "technologies": [
+        "node"
+      ],
+      "endpoints": [
+        {
+          "file": "server.js",
+          "port": 8003
+        }
+      ]
+    },
+    {
+      "id": "agent-ui",
+      "name": "Agent Ui",
+      "type": "service",
+      "language": "html",
+      "entry_point": "index.html",
+      "port": null,
+      "technologies": [
+        "node",
+        "express"
+      ],
+      "endpoints": [
+        {
+          "file": "agent-server.js",
+          "port": 8084
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/tasks",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/kanban/tasks",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/kanban/tasks/:id/move",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/tasks/flat",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/kanban/tasks/:id/files",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/kanban/tasks/:id/files/:file",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/kanban/tasks/:id",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/search",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/stats",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/files",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/kanban/files/:file",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/kanban/tasks/:id/link",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "connections",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "testStatus",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "name",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "authType",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/chat",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/chat/stream",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/tools",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/zes/execute",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/knowledge",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/memory",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/zes/memory/fact",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/zes/memory",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/memory/stats",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/memory/forget/:type/:id",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/slash-commands",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/zes/summary",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/models",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/health",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/agents",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/agents/:id",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/orchestrator/run",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/orchestrator/dispatch",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "*",
+          "file": "agent-server.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "query parser fn",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view engine",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "views",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "content-type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Something",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Range",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Proto",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "subdomain offset",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Last-Modified",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Requested-With",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Link",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "etag fn",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "jsonp callback name",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "/user/:uid/photos/:file",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "/user/:uid/photos/:file",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Referrer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Referrer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Location",
+          "file": "response.js"
+        }
+      ]
+    },
+    {
+      "id": "chromium-cdp",
+      "name": "Chromium Cdp",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-bridge-http",
+      "name": "Claude Bridge Http",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-bridge-ws",
+      "name": "Claude Bridge Ws",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-dashboard",
+      "name": "Claude Dashboard",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-proxy",
+      "name": "Claude Proxy",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-ui",
+      "name": "Claude Ui",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-ui-backend",
+      "name": "Claude Ui Backend",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "claude-ui-frontend",
+      "name": "Claude Ui Frontend",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "cloudflare-tunnel",
+      "name": "Cloudflare Tunnel",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "dashboard8083",
+      "name": "Dashboard8083",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "hermes-gateway",
+      "name": "Hermes Gateway",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "hermes-webui",
+      "name": "Hermes Webui",
+      "type": "service",
+      "language": "javascript",
+      "entry_point": "server.js",
+      "port": null,
+      "technologies": [
+        "node",
+        "express"
+      ],
+      "endpoints": [
+        {
+          "file": "server.js",
+          "port": 8787
+        },
+        {
+          "method": "POST",
+          "path": "/api/chat",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/models",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/hermes/status",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/hermes/providers",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/hermes/sessions",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/system/status",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/system/evals",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/system/security",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/system/backup",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/system/restart/:service",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/system/exec",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "query parser fn",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view engine",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "views",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "content-type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Something",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Range",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Proto",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "subdomain offset",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Last-Modified",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Requested-With",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Link",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "etag fn",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "jsonp callback name",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "/user/:uid/photos/:file",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "/user/:uid/photos/:file",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Referrer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Referrer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Location",
+          "file": "response.js"
+        }
+      ]
+    },
+    {
+      "id": "r9",
+      "name": "R9",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "socat",
+      "name": "Socat",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "tor",
+      "name": "Tor",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "ttyd",
+      "name": "Ttyd",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "vscode-mobile",
+      "name": "Vscode Mobile",
+      "type": "service",
+      "language": "javascript",
+      "entry_point": "server.js",
+      "port": null,
+      "technologies": [
+        "node",
+        "express"
+      ],
+      "endpoints": [
+        {
+          "file": "server.js",
+          "port": 8001
+        },
+        {
+          "method": "POST",
+          "path": "/api/chat",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/chat/direct",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/pairing/code",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/pairing/verify",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/pairing/renew",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/vscode/status",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/vscode/extensions",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/tools/execute",
+          "file": "server.js"
+        },
+        {
+          "method": "POST",
+          "path": "/api/agent/command",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "/api/providers",
+          "file": "server.js"
+        },
+        {
+          "method": "GET",
+          "path": "http://127.0.0.1:8000/",
+          "file": "test_proxy.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "a",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "c",
+          "file": "index.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "view engine",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "views",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "env",
+          "file": "application.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "content-type",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Something",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Range",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "query parser fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Proto",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "subdomain offset",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "trust proxy fn",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Forwarded-Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Host",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Last-Modified",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "X-Requested-With",
+          "file": "request.js"
+        },
+        {
+          "method": "GET",
+          "path": "Link",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "etag fn",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "ETag",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json escape",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json replacer",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "json spaces",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "jsonp callback name",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Content-Type",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "/user/:uid/photos/:file",
+          "file": "response.js"
+        },
+        {
+          "method": "GET",
+          "path": "Location",
+          "file": "response.js"
+        }
+      ]
+    },
+    {
+      "id": "vscode-server",
+      "name": "Vscode Server",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "zes-9router-tunnel",
+      "name": "Zes 9Router Tunnel",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "zes-affiliate",
+      "name": "Zes Affiliate",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "zes-downloader",
+      "name": "Zes Downloader",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "zes-router-proxy",
+      "name": "Zes Router Proxy",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    },
+    {
+      "id": "zeschrome-mcp",
+      "name": "Zeschrome Mcp",
+      "type": "runsv",
+      "language": "unknown",
+      "entry_point": "N/A",
+      "port": null,
+      "technologies": [],
+      "endpoints": []
+    }
+  ],
+  "dataFlow": [
+    {
+      "from": "dashboard8083",
+      "to": "r9",
+      "type": "http",
+      "description": "API calls to 9Router for provider status"
+    },
+    {
+      "from": "hermes-webui",
+      "to": "r9",
+      "type": "http",
+      "description": "Chat completion requests via 9Router"
+    },
+    {
+      "from": "agent-ui",
+      "to": "r9",
+      "type": "http",
+      "description": "AI chat via 9Router"
+    },
+    {
+      "from": "claude-proxy",
+      "to": "r9",
+      "type": "http",
+      "description": "Claude Code proxy to 9Router"
+    },
+    {
+      "from": "claude-dashboard",
+      "to": "r9",
+      "type": "http",
+      "description": "Team dashboard data via 9Router"
+    },
+    {
+      "from": "zes-router-proxy",
+      "to": "r9",
+      "type": "http",
+      "description": "Provider-specific proxy routing"
+    }
+  ],
+  "generatedAt": "2026-07-14T10:03:51.839206",
+  "totalServices": 27,
+  "totalDataFlows": 6
+}

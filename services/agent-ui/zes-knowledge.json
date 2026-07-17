@@ -1,0 +1,78 @@
+{
+  "system_name": "ZES (Zettlr Execution System)",
+  "version": "4.0",
+  "architecture": "Codex/Claude Code → 9Router (:20128) → 18 AI providers",
+  "services": {
+    "9router": "AI provider router on port 20128, 18 providers, 9 active. Routes to GitHub Copilot, Groq, Cerebras, Mistral, OpenRouter, Cloudflare, Gemini, DeepSeek, and more.",
+    "dashboard": "ZES Control Center v4 on port 8083. Real-time SSE push every 3s. Tabs: Services, Providers, MCP, Audit Log, Terminal, Settings. Left drawer nav with service status + quick links. Mobile-optimized.",
+    "hermes": "Gateway/cron scheduler. 10 cron jobs: daily-health-check, log-cleanup, model-rotation, dashboard-snapshot, ip-rotation, eval-service-health, config-backup, mcp-health-check, provider-audit, security-scan.",
+    "claude_code": "Anthropic Claude Code v2.1.207. CLI tool via proot-distro Debian. Not a web server (port: 0). Run with: claude \"prompt\" or claude -p \"task\"",
+    "codex": "AI API proxy + Zen gateway on port 5900.",
+    "vscode_server": "Web VS Code on port 8000. Cline + Continue ready.",
+    "ttyd": "Web terminal on port 7173. Browser-based shell access.",
+    "tor": "SOCKS5 proxy on port 9050. Anonymizing proxy pool.",
+    "zeschrome_mcp": "MCP server on port 5901. 18 tools: browser automation (browse, screenshot, click, type, extract, auth) + ZES system tools (check_service, list_services, get_service_logs, run_health_evals).",
+    "zes_bridge_mcp": "MCP server via stdio. 10 tools: get_dashboard_status, get_9router_providers, check_service, list_services, restart_service, get_service_logs, rotate_tor_ip, get_hermes_cron, run_health_evals, get_claude_code_info."
+  },
+  "mcp_servers": [
+    {"name": "zeschrome", "tools": 18, "port": 5901, "type": "Node stdio"},
+    {"name": "zes-bridge", "tools": 10, "type": "Node stdio"},
+    {"name": "chrome-devtools", "tools": 8, "type": "npx"},
+    {"name": "filesystem", "tools": 5, "type": "npx"},
+    {"name": "memory", "tools": 3, "type": "npx"},
+    {"name": "sequential-thinking", "tools": 2, "type": "npx"}
+  ],
+  "skills": {
+    "count": 31,
+    "location": "~/Zes-System/.agents/skills/",
+    "auto_discovered_by": ["Codex", "Claude Code", "Hermes"]
+  },
+  "agents": {
+    "count": 16,
+    "location": "~/Zes-System/.agents/agents/",
+    "list": ["planner", "architect", "code-reviewer", "tdd-guide", "security-reviewer", "spec-miner", "python-reviewer", "typescript-reviewer", "build-error-resolver", "harness-optimizer", "e2e-runner", "performance-optimizer", "loop-operator", "code-architect", "silent-failure-hunter", "doc-updater"]
+  },
+  "security_hooks": {
+    "count": 6,
+    "location": "~/Zes-System/scripts/hooks/",
+    "active": ["config-protection", "gateguard-fact-force", "mcp-health-check"],
+    "description": "Pre-tool hooks in ~/.claude.json for config protection, security gate, MCP health verification"
+  },
+  "backup_system": {
+    "commands": {
+      "snapshot": "zes backup or zes-backup snapshot",
+      "restore": "zes restore or zes-restore",
+      "list": "zes-backup list"
+    },
+    "schedule": "Daily at 04:00 via Hermes cron",
+    "captures": [".9router/", ".claude.json", ".hermes/", "dashboard_v4.py", "Zes-System repo"]
+  },
+  "cli_tool": {
+    "command": "zes",
+    "location": "~/.local/bin/zes",
+    "subcommands": ["status", "health", "mcp list", "backup", "restore", "restart <service>", "logs <service>", "dashboard"]
+  },
+  "test_suite": {
+    "script": "~/Zes-System/scripts/run-tests.py",
+    "tests": 20,
+    "status": "20/20 passing"
+  },
+  "health_evals": {
+    "script": "~/Zes-System/scripts/run-evals.py",
+    "checks": 8,
+    "status": "8/8 passing (100%)"
+  },
+  "runsv_services": [
+    "9router-proxy", "dashboard8083", "hermes-gateway", "chromium-cdp",
+    "zeschrome-mcp", "vscode-server", "ttyd", "tor",
+    "agent-ui", "agent-dash", "agent-dash-web", "vscode-mobile",
+    "cloudflare-tunnel", "zes-9router-tunnel", "zes-affiliate", "socat"
+  ],
+  "port_map": {
+    "20128": "9Router", "8083": "Dashboard v4", "5900": "Codex",
+    "8000": "VS Code Server", "8001": "VS Code Mobile", "7173": "ttyd",
+    "5901": "zesChrome MCP", "9222": "Chrome CDP", "9050": "Tor SOCKS5",
+    "8022": "SSH", "8084": "Agent UI (this)", "8002": "Agent Dashboard API",
+    "8003": "Agent Dashboard Web", "5030": "ZES Swarm"
+  }
+}

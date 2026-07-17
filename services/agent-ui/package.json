@@ -1,0 +1,13 @@
+{
+  "name": "zes-agent-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node agent-server.js"
+  },
+  "dependencies": {
+    "lit": "^3.3.3",
+    "express": "^4.21.0"
+  },
+  "main": "agent-server.js"
+}

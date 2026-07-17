@@ -306,3 +306,38 @@ Codex (NL Orchestrator) ──┬── proot-distro → Claude Code (deep codin
 
 - `~/.codex/skills/zes-orchestrator/` — Full orchestrator skill with delegation scripts
 - `~/.codex/skills/zes-system/` — ZES system operational knowledge
+
+---
+
+## 9. Memory Hub — Vector Search (v3.5.0)
+
+### Search Modes
+
+| Mode | API Param | Backend | Use Case |
+|------|-----------|---------|----------|
+| Full-text | `mode=fts5` | SQLite FTS5 | Exact keyword matches |
+| Vector | `mode=vector` | TF-IDF + cosine similarity | Semantic similarity |
+| Hybrid | `mode=hybrid` | Reciprocal Rank Fusion | Best overall relevance |
+
+### Quick Start
+
+```bash
+# Search with different modes
+zes-memory search --mode vector "coding agent"
+zes-memory search --mode hybrid "memory system"
+
+# Reindex embeddings after adding memories
+zes-memory reindex
+
+# API
+curl "/api/zes/memory/search?q=agent&mode=vector"
+curl -X POST "/api/zes/memory/reindex"
+```
+
+### Architecture
+
+- **TF-IDF Vectorizer** — Pure Python, no external dependencies
+- **Extensible** — Swap in 9Router embeddings or sqlite-vec when available
+- **Auto-indexing** — Embeddings computed on write, reindexable on demand
+
+See [`docs/memory-hub-vector-search.md`](docs/memory-hub-vector-search.md) for full documentation.

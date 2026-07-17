@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<title>ZES Agent — Control UI</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --bg3: #0f3460;
+  --accent: #e94560;
+  --accent2: #533483;
+  --text: #e0e0e0;
+  --text2: #a0a0b0;
+  --border: rgba(255,255,255,0.06);
+  --radius: 12px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+
+/* ─── Layout ─── */
+#app{display:flex;flex-direction:column;height:100vh;max-height:100dvh}
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:10}
+header h1{font-size:16px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px}
+header h1 small{font-size:10px;color:var(--text2);font-weight:400}
+#model-select{background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;flex:1;max-width:300px}
+#model-select:focus{outline:1px solid var(--accent)}
+
+/* ─── Chat area ─── */
+#chat-area{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth}
+#chat-area::-webkit-scrollbar{width:4px}
+#chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.msg{max-width:88%;padding:10px 14px;border-radius:var(--radius);animation:fadeIn .2s ease;word-wrap:break-word;white-space:pre-wrap;font-size:13px;line-height:1.6}
+.msg.user{background:var(--accent2);align-self:flex-end;border-bottom-right-radius:4px}
+.msg.assistant{background:var(--bg2);align-self:flex-start;border-bottom-left-radius:4px;border:1px solid var(--border)}
+.msg.system{background:rgba(233,69,96,0.1);align-self:center;font-size:11px;color:var(--text2);padding:6px 12px;max-width:70%}
+.msg .provider-tag{display:inline-block;font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--text2);margin-bottom:4px}
+.msg .timestamp{font-size:10px;color:var(--text2);margin-top:4px;text-align:right;opacity:0.6}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.typing{display:flex;gap:4px;padding:4px 0;align-items:center}
+.typing span{width:6px;height:6px;background:var(--accent);border-radius:50%;animation:bounce 1.4s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+
+/* ─── Input area ─── */
+#input-area{background:var(--bg2);border-top:1px solid var(--border);padding:8px 12px;display:flex;gap:8px;align-items:flex-end;flex-shrink:0}
+#chat-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;resize:none;max-height:120px;min-height:44px;font-family:inherit;line-height:1.4}
+#chat-input:focus{outline:1px solid var(--accent)}
+#chat-input::placeholder{color:var(--text2)}
+#send-btn{width:44px;height:44px;border:none;border-radius:10px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s;flex-shrink:0}
+#send-btn:active{transform:scale(0.92)}
+#send-btn:disabled{opacity:0.4;cursor:not-allowed}
+
+/* ─── Toolbar below input ─── */
+#toolbar{background:var(--bg2);border-top:1px solid var(--border);padding:4px 12px;display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+.tool-btn{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);padding:4px 10px;font-size:11px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.tool-btn:hover{background:var(--bg3);color:var(--text)}
+.tool-btn:active{transform:scale(0.95)}
+.tool-btn.active{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+#status-dot{width:8px;height:8px;border-radius:50%;margin-left:auto;flex-shrink:0}
+#status-dot.connected{background:#4caf50}
+#status-dot.disconnected{background:#f44336}
+#status-dot.loading{background:#ff9800;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ─── Sessions panel ─── */
+#sessions-panel{display:none;position:fixed;top:0;right:0;width:280px;height:100%;background:var(--bg2);border-left:1px solid var(--border);z-index:100;flex-direction:column;animation:slideIn .2s ease}
+#sessions-panel.open{display:flex}
+@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+#sessions-panel .sp-header{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+#sessions-panel .sp-header button{background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:4px}
+#sessions-list{flex:1;overflow-y:auto;padding:8px}
+.session-item{padding:8px 12px;border-radius:8px;cursor:pointer;margin-bottom:4px;font-size:12px;transition:background .15s}
+.session-item:hover{background:var(--bg3)}
+.session-item.active{background:var(--bg3);border-left:3px solid var(--accent)}
+.session-item .s-title{font-weight:500;color:var(--text)}
+.session-item .s-preview{color:var(--text2);font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-item .s-time{font-size:10px;color:var(--text2);margin-top:2px}
+
+/* ─── Mobile responsive ─── */
+  header{padding:6px 10px}
+  header h1{font-size:14px}
+  #model-select{font-size:11px;max-width:180px}
+  #chat-area{padding:10px}
+  .msg{max-width:92%;padding:8px 12px;font-size:12px}
+  #input-area{padding:6px 8px}
+  #chat-input{font-size:14px;padding:8px 12px;min-height:40px;max-height:100px}
+  #send-btn{width:40px;height:40px}
+  #toolbar{display:none}
+  .tool-btn{font-size:10px;padding:3px 8px}
+  #sessions-panel{width:100%}
+
+/* ─── Code blocks ─── */
+.msg pre{background:rgba(0,0,0,0.3);border-radius:8px;padding:12px;overflow-x:auto;margin:8px 0;font-size:12px;line-height:1.5}
+.msg code{font-family:'SF Mono',monospace;font-size:12px}
+.msg p code{background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;font-size:12px}
+.msg p{margin:4px 0}
+
+/* ─── Welcome screen ─── */
+#welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text2);text-align:center;padding:32px}
+#welcome .logo{font-size:48px;margin-bottom:16px}
+#welcome h2{font-size:18px;color:var(--text);margin-bottom:8px}
+#welcome p{font-size:13px;max-width:400px;line-height:1.6}
+#welcome .examples{margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#welcome .examples button{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 16px;color:var(--text);font-size:12px;cursor:pointer;transition:all .15s}
+#welcome .examples button:active{transform:scale(0.95);background:var(--accent2)}
+</style>
+
+
+/* ─── Drawer nav (mobile) ─── */
+.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:998;opacity:0;pointer-events:none;transition:opacity .3s}
+.drawer-overlay.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;left:0;bottom:0;width:280px;max-width:85vw;background:var(--bg2);border-right:1px solid var(--border);z-index:999;transform:translateX(-100%);transition:transform .3s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow-y:auto}
+.drawer.open{transform:translateX(0)}
+.drawer-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)}
+.drawer-header .logo{font-size:15px;font-weight:700;color:var(--accent)}
+.drawer-close{background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;padding:4px}
+.drawer-section{padding:8px 0}
+.drawer-section-title{padding:6px 16px;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px}
+.drawer-item{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:13px;color:var(--text2);text-decoration:none;cursor:pointer;transition:background .15s}
+.drawer-item:hover{background:var(--bg3);color:var(--text)}
+.drawer-item .di-icon{font-size:16px;width:24px;text-align:center}
+.drawer-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)}
+
+/* ─── Hamburger menu button (mobile) ─── */
+#menu-btn{display:flex;background:var(--bg3);border:1px solid var(--border);color:var(--text2);width:44px;height:44px;border-radius:10px;cursor:pointer;font-size:20px;align-items:center;justify-content:center;flex-shrink:0;tap-highlight-color:transparent;-webkit-tap-highlight-color:transparent}
+
+/* ─── Desktop: sidebar always visible ─── */
+@media(min-width:769px){
+  .drawer{transform:none;z-index:5;top:0}
+  .drawer-overlay{display:none}
+  #menu-btn{display:none}
+  .drawer-close{display:none}
+  #app{padding-left:280px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Drawer Overlay -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <span class="logo">⚡ ZES Agent</span>
+      <button class="drawer-close" onclick="toggleDrawer()">✕</button>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">Actions</div>
+      <div class="drawer-item" onclick="document.getElementById('toolbar').style.display=document.getElementById('toolbar').style.display==='none'?'flex':'none';toggleDrawer()"><span class="di-icon">🔧</span> Toggle Toolbar</div>
+      <div class="drawer-item" onclick="document.getElementById('btn-context').click();toggleDrawer()"><span class="di-icon">📎</span> Context</div>
+      <div class="drawer-item" onclick="document.getElementById('btn-clear').click();toggleDrawer()"><span class="di-icon">🗑</span> Clear Chat</div>
+      <div class="drawer-item" onclick="document.getElementById('btn-copy').click();toggleDrawer()"><span class="di-icon">📋</span> Copy Messages</div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">System Tools</div>
+      <div class="drawer-item" onclick="zesSystemStatus();toggleDrawer()"><span class="di-icon">📊</span> System Status</div>
+      <div class="drawer-item" onclick="zesHealth();toggleDrawer()"><span class="di-icon">🏥</span> Health Evals</div>
+      <div class="drawer-item" onclick="zessRunBackup();toggleDrawer()"><span class="di-icon">💾</span> Backup Config</div>
+      <div class="drawer-item" onclick="zesProviders();toggleDrawer()"><span class="di-icon">🔌</span> AI Providers</div>
+      <div class="drawer-item" onclick="zesScan();toggleDrawer()"><span class="di-icon">🛡️</span> Security Scan</div>
+      <div class="drawer-item" onclick="zesShowMemory();toggleDrawer()"><span class="di-icon">🧠</span> Memory <span id="drawerMemCount" style="font-size:10px;color:var(--text3)"></span></div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">Slash Commands</div>
+      <div class="drawer-item" onclick="sendSlash('plan')"><span class="di-icon">📋</span> /plan — Implementation plan</div>
+      <div class="drawer-item" onclick="sendSlash('tdd')"><span class="di-icon">🧪</span> /tdd — Test-driven dev</div>
+      <div class="drawer-item" onclick="sendSlash('code-review')"><span class="di-icon">🔍</span> /code-review — Code review</div>
+      <div class="drawer-item" onclick="sendSlash('build-fix')"><span class="di-icon">🔧</span> /build-fix — Fix errors</div>
+      <div class="drawer-item" onclick="sendSlash('verify')"><span class="di-icon">✅</span> /verify — Full check</div>
+      <div class="drawer-item" onclick="sendSlash('help')"><span class="di-icon">❓</span> /help — All commands</div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-title">Quick Links</div>
+      <a class="drawer-item" href="http://localhost:8083/" target="_blank"><span class="di-icon">📊</span> Dashboard v4</a>
+      <a class="drawer-item" href="http://localhost:8000/" target="_blank"><span class="di-icon">💻</span> VS Code Server</a>
+      <a class="drawer-item" href="http://localhost:7173/" target="_blank"><span class="di-icon">🖥</span> ttyd Terminal</a>
+      <a class="drawer-item" href="http://localhost:5905/" target="_blank"><span class="di-icon">🧠</span> Claude Proxy</a>
+      <a class="drawer-item" href="http://localhost:20128/" target="_blank"><span class="di-icon">🌐</span> 9Router</a>
+    </div>
+    <div class="drawer-footer">
+      ZES Agent v2 · Memory enabled
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <button id="menu-btn" onclick="toggleDrawer()">☰</button>
+    <h1>⚡ ZES <small>Agent Control</small></h1>
+    <select id="model-select"></select>
+    <button class="tool-btn" id="btn-sessions" title="Sessions">☰</button>
+    <span id="status-dot" class="disconnected"></span>
+  </header>
+
+  <!-- Welcome / Chat -->
+  <div id="chat-area">
+    <div id="welcome">
+      <div class="logo">🤖</div>
+      <h2>ZES Agent Control</h2>
+      <p>AI-powered agent interface connected through 9Router. Choose a model and start a conversation.</p>
+      <div class="examples">
+        <button onclick="sendExample('Write a Python script to scan network ports')">📡 Port Scanner</button>
+        <button onclick="sendExample('Explain how 9Router routes AI requests')">🔀 9Router Explain</button>
+        <button onclick="sendExample('Give me 5 ideas for an Android AI app')">💡 App Ideas</button>
+        <button onclick="sendExample('Write a bash one-liner to check disk usage')">🐚 Bash One-liner</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div id="input-area">
+    <textarea id="chat-input" placeholder="Message Agent... (/plan, /tdd, /code-review, /help)" rows="1"></textarea>
+    <button id="send-btn" disabled>▶</button>
+  </div>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <button class="tool-btn" id="btn-context">📎 Context</button>
+    <button class="tool-btn" id="btn-clear">🗑 Clear</button>
+    <button class="tool-btn" id="btn-copy">📋 Copy</button>
+    <button class="tool-btn" onclick="sendSlash('help')" title="Slash commands" style="font-size:12px">/ ❓</button>
+    <span id="token-count" style="font-size:10px;color:var(--text2);margin-left:auto">0 tokens</span>
+  </div>
+
+<!-- Sessions panel -->
+<div id="sessions-panel">
+  <div class="sp-header">
+    <span>💬 Sessions</span>
+    <button id="close-sessions">✕</button>
+  </div>
+  <div id="sessions-list"></div>
+</div>
+
+<script>
+(function(){
+  const D = document;
+  const chatArea = D.getElementById('chat-area');
+  const welcome = D.getElementById('welcome');
+  const chatInput = D.getElementById('chat-input');
+  const sendBtn = D.getElementById('send-btn');
+  const modelSelect = D.getElementById('model-select');
+  const statusDot = D.getElementById('status-dot');
+  const sessionsPanel = D.getElementById('sessions-panel');
+  const sessionsList = D.getElementById('sessions-list');
+  const tokenCount = D.getElementById('token-count');
+
+  let currentModel = 'cf/@cf/qwen/qwen2.5-coder-32b-instruct';
+  let messages = [];
+  let sessionId = Date.now().toString(36);
+  let sessions = JSON.parse(localStorage.getItem('zes_sessions') || '[]');
+  let isStreaming = false;
+
+  // ─── Load models ───
+  async function loadModels() {
+    try {
+      const res = await fetch('/api/models');
+      const models = await res.json();
+      modelSelect.innerHTML = models.map(m => 
+        `<option value="${m.id}">${m.name} (${m.provider})</option>`
+      ).join('');
+      currentModel = localStorage.getItem('zes_model') || models[0].id;
+      modelSelect.value = currentModel;
+    } catch(e) {
+      modelSelect.innerHTML = '<option value="cf/@cf/qwen/qwen2.5-coder-32b-instruct">Qwen 2.5 Coder 32B</option>';
+    }
+  }
+
+  modelSelect.addEventListener('change', () => {
+    currentModel = modelSelect.value;
+    localStorage.setItem('zes_model', currentModel);
+  });
+
+  // ─── Chat functions ───
+  function escapeHtml(text) {
+    const div = D.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function formatMessage(text) {
+    // Code blocks with ```
+    text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      return `<pre><code>${escapeHtml(code)}</code></pre>`;
+    });
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Bold
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Lines to paragraphs
+    text = text.split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('');
+    return text;
+  }
+
+  function addMessage(role, content, meta) {
+    // Remove welcome
+    welcome.style.display = 'none';
+    
+    const div = D.createElement('div');
+    div.className = `msg ${role}`;
+    
+    if (meta?.provider) {
+      const tag = D.createElement('span');
+      tag.className = 'provider-tag';
+      tag.textContent = meta.provider;
+      div.appendChild(tag);
+    }
+    
+    const contentDiv = D.createElement('div');
+    contentDiv.innerHTML = formatMessage(content);
+    div.appendChild(contentDiv);
+    
+    const time = D.createElement('div');
+    time.className = 'timestamp';
+    time.textContent = new Date().toLocaleTimeString();
+    div.appendChild(time);
+    
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return div;
+  }
+  window.addMessage = addMessage;
+
+  function addTyping() {
+    const div = D.createElement('div');
+    div.className = 'msg assistant';
+    div.id = 'typing-indicator';
+    div.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return div;
+  }
+
+  function removeTyping() {
+    const el = D.getElementById('typing-indicator');
+    if (el) el.remove();
+  }
+
+  async function sendMessage(content) {
+    if (!content.trim() || isStreaming) return;
+    isStreaming = true;
+    sendBtn.disabled = true;
+    
+    messages.push({ role: 'user', content: content.trim() });
+    addMessage('user', content.trim(), { provider: 'You' });
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    
+    addTyping();
+    statusDot.className = 'loading';
+    
+    const model = currentModel;
+    const providerLabel = modelSelect.options[modelSelect.selectedIndex]?.text || model;
+    
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages }),
+      });
+      
+      removeTyping();
+      
+      if (!res.ok) {
+        const err = await res.text();
+        addMessage('system', `Error: ${err.slice(0, 200)}`);
+        messages = messages.slice(0, -1);
+        isStreaming = false;
+        sendBtn.disabled = false;
+        statusDot.className = 'connected';
+        return;
+      }
+      
+      const data = await res.json();
+      const reply = data.choices?.[0]?.message?.content || 'No response';
+      
+      messages.push({ role: 'assistant', content: reply });
+      addMessage('assistant', reply, { provider: providerLabel });
+      saveSession();
+      updateTokenCount();
+      
+    } catch(e) {
+      removeTyping();
+      addMessage('system', `Network error: ${e.message}`);
+    }
+    
+    isStreaming = false;
+    sendBtn.disabled = false;
+    statusDot.className = 'connected';
+  }
+
+  // ─── Sessions ───
+  function saveSession() {
+    const title = messages[0]?.content?.slice(0, 60) || 'New chat';
+    const existing = sessions.findIndex(s => s.id === sessionId);
+    const entry = { id: sessionId, title, messages: messages.slice(), model: currentModel, updated: Date.now() };
+    if (existing >= 0) {
+      sessions[existing] = entry;
+    } else {
+      sessions.unshift(entry);
+    }
+    if (sessions.length > 20) sessions = sessions.slice(0, 20);
+    localStorage.setItem('zes_sessions', JSON.stringify(sessions));
+    renderSessions();
+  }
+
+  function renderSessions() {
+    sessionsList.innerHTML = sessions.map(s => `
+      <div class="session-item ${s.id === sessionId ? 'active' : ''}" onclick="loadSession('${s.id}')">
+        <div class="s-title">${escapeHtml(s.title)}</div>
+        <div class="s-preview">${s.messages?.length || 0} messages · ${s.model || ''}</div>
+        <div class="s-time">${new Date(s.updated).toLocaleDateString()}</div>
+      </div>
+    `).join('');
+  }
+
+  window.loadSession = function(id) {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return;
+    sessionId = id;
+    messages = session.messages || [];
+    currentModel = session.model || currentModel;
+    modelSelect.value = currentModel;
+    
+    chatArea.innerHTML = '';
+    welcome.style.display = 'none';
+    messages.forEach(m => addMessage(m.role, m.content));
+    saveSession();
+    sessionsPanel.classList.remove('open');
+    renderSessions();
+  };
+
+  function newSession() {
+    sessionId = Date.now().toString(36);
+    messages = [];
+    chatArea.innerHTML = '';
+    welcome.style.display = 'flex';
+    saveSession();
+  }
+
+  // ─── Input handling ───
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    sendBtn.disabled = !chatInput.value.trim() || isStreaming;
+  });
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(chatInput.value);
+    }
+  });
+
+  // ─── Slash command shortcuts ───
+  window.sendSlash = function(cmd) {
+    chatInput.value = '/' + cmd + ' ';
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    chatInput.focus();
+    toggleDrawer();
+  };
+
+  // ─── Drawer toggle ───
+  window.toggleDrawer = function() {
+    const drawer = D.getElementById('drawer');
+    const overlay = D.getElementById('drawerOverlay');
+    drawer.classList.toggle('open');
+    overlay.classList.toggle('open');
+    // Sync memory count
+    if (drawer.classList.contains('open')) {
+    }
+  };
+
+  sendBtn.addEventListener('click', () => sendMessage(chatInput.value));
+
+  window.sendExample = function(text) {
+    chatInput.value = text;
+    sendMessage(text);
+  };
+
+  // ─── Toolbar buttons ───
+  D.getElementById('btn-clear').addEventListener('click', newSession);
+  
+  D.getElementById('btn-copy').addEventListener('click', () => {
+    const text = messages.map(m => `${m.role}: ${m.content}`).join('\n\n');
+    navigator.clipboard?.writeText(text).catch(() => {});
+  });
+
+  D.getElementById('btn-context').addEventListener('click', () => {
+    addMessage('system', '📎 Context mode: Files and references can be attached in future updates.');
+  });
+
+  // Sessions panel
+  D.getElementById('btn-sessions').addEventListener('click', () => {
+    sessionsPanel.classList.toggle('open');
+    renderSessions();
+  });
+  D.getElementById('close-sessions').addEventListener('click', () => {
+    sessionsPanel.classList.remove('open');
+  });
+
+  // ─── Token count ───
+  function updateTokenCount() {
+    const total = messages.reduce((sum, m) => sum + m.content.length, 0);
+    tokenCount.textContent = `${Math.round(total / 4)} tokens · ${messages.length} msgs`;
+  }
+
+  // ─── Connection check ───
+  async function checkConnection() {
+    try {
+      const res = await fetch('/health');
+      if (res.ok) {
+        statusDot.className = 'connected';
+        statusDot.title = 'Server connected';
+      }
+    } catch(e) {
+      statusDot.className = 'disconnected';
+    }
+  }
+
+  // ─── Init ───
+  loadModels();
+  checkConnection();
+  setInterval(checkConnection, 30000);
+  renderSessions();
+  chatInput.focus();
+
+  console.log('🤖 ZES Agent UI loaded');
+})();
+</script>
+
+</div>
+
+<script>
+// ── ZES System Integration ──────────────────────────────────────
+async function zesCall(tool, args, callback, btnEl) {
+  const btn = btnEl || (typeof event !== 'undefined' ? event?.target : null);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+  
+  // Add a waiting message to chat
+  if (typeof addMessage === 'function') {
+    addMessage('assistant', '⏳ Running `' + tool + '`...', { provider: 'ZES System' });
+  }
+  
+  try {
+    const res = await fetch('/api/zes/execute', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ tool, args }),
+    });
+    const data = await res.json();
+    
+    // Replace last message with result
+    const chatMessages = document.getElementById('chat-area');
+    if (chatMessages) {
+      const lastMsg = chatMessages.lastElementChild;
+      if (lastMsg && lastMsg.textContent.includes('⏳ Running')) {
+        // Remove the waiting message
+        chatMessages.removeChild(lastMsg);
+      }
+    }
+    
+    if (typeof addMessage === 'function') {
+      addMessage('assistant', '```
+' + (data.output || 'No output').slice(0, 2000) + '
+```
+🔧 _Tool: ' + tool + '_', { provider: 'ZES System' });
+    }
+    
+    if (callback) callback(data);
+    return data;
+  } catch (e) {
+    if (typeof addMessage === 'function') {
+      addMessage('assistant', '❌ Error: ' + e.message, { provider: 'ZES System' });
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = tool === 'get_system_status' ? '📊 Status' : 
+      tool === 'run_health_evals' ? '🏥 Health' :
+      tool === 'run_backup' ? '💾 Backup' :
+      tool === 'get_providers' ? '🔌 Providers' :
+      tool === 'security_scan' ? '🛡️ Security' : '🔧 Tool'; }
+  }
+}
+
+function zesSystemStatus() { zesCall('get_system_status', null, null, null); }
+function zesHealth() { zesCall('run_health_evals', null, null, null); }
+function zessRunBackup() { zesCall('run_backup', null, null, null); }
+function zesProviders() { zesCall('get_providers', null, null, null); }
+function zesScan() { zesCall('security_scan', null, null, null); }
+
+// ── Memory ──────────────────────────────────────────────────────
+async function zesShowMemory() {
+  try {
+    const res = await fetch('/api/zes/memory');
+    const data = await res.json();
+    const facts = data.facts || [];
+    const convos = data.conversations || [];
+    
+    let msg = '## 🧠 ZES Agent Memory
+
+';
+    if (facts.length === 0 && convos.length === 0) {
+      msg += '_No memories yet. Start chatting and I will learn._';
+    } else {
+      if (facts.length) {
+        msg += '### 📝 Learned Facts (' + facts.length + ')
+';
+        facts.slice(0, 10).forEach(f => { msg += '- ' + f.text.slice(0, 120) + '
+'; });
+      }
+      if (convos.length) {
+        msg += '
+### 💬 Recent Conversations (' + convos.length + ')
+';
+        convos.slice(0, 5).forEach(c => { msg += '- ' + c.summary.slice(0, 100) + '
+'; });
+      }
+    }
+    
+    if (typeof addMessage === 'function') {
+      addMessage('assistant', msg, { provider: 'Memory' });
+    }
+  } catch(e) {
+    if (typeof addMessage === 'function') {
+      addMessage('assistant', '❌ Memory error: ' + e.message, { provider: 'Memory' });
+    }
+  }
+}
+
+// ── Update memory badge ──────────────────────────────────────────
+async function zesUpdateMemoryBadge() {
+  try {
+    const res = await fetch('/api/zes/summary');
+    const data = await res.json();
+    const drawerBadge = document.getElementById('drawerMemCount');
+    if (drawerBadge) {
+      const total = (data.memories?.facts || 0) + (data.memories?.conversations || 0);
+      drawerBadge.textContent = total > 0 ? '[' + total + ']' : '';
+    }
+  } catch(e) {}
+}
+}
+
+// Update badge every 10s
+setInterval(zesUpdateMemoryBadge, 10000);
+zesUpdateMemoryBadge();
+
+// ── Intercept chat send to add ZES awareness ─────────────────────
+// Store original send function
+const _originalSend = typeof sendMessage === 'function' ? sendMessage : null;
+
+// Listen for messages that mention "system" and inject ZES knowledge
+if (typeof sendMessage === 'function') {
+  const origSend = sendMessage;
+  sendMessage = async function(content) {
+    // Learn from conversation
+    try {
+      await fetch('/api/zes/memory/fact', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ fact: 'User asked about: ' + content.slice(0, 200), category: 'query' }),
+      });
+    } catch(e) {}
+    return origSend(content);
+  };
+}
+
+console.log('🧠 ZES Agent v2 loaded — 12 tools, system-aware, persistent memory');
+</script>
+
+</body>
+</html>

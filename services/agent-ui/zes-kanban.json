@@ -1,0 +1,22 @@
+{
+  "columns": {
+    "backlog": [],
+    "in-progress": [],
+    "review": [],
+    "done": [
+      {
+        "id": "task-1",
+        "title": "Test task",
+        "description": "Testing kanban",
+        "source": "test",
+        "conversationId": "",
+        "createdAt": "2026-07-11T09:03:51.588Z",
+        "updatedAt": "2026-07-11T09:03:56.593Z",
+        "priority": "medium",
+        "tags": [],
+        "column": "done"
+      }
+    ]
+  },
+  "nextId": 2
+}

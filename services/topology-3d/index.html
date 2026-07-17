@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ZES 3D Topology</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
+  #canvas-container { width: 100%; height: 100vh; }
+  #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(15,23,42,0.9); border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 12px; padding: 8px 16px; font-size: 12px;
+    backdrop-filter: blur(8px); z-index: 10; text-align: center; color: #94a3b8; }
+  #legend { position: fixed; top: 16px; right: 16px;
+    background: rgba(15,23,42,0.9); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 12px; font-size: 11px;
+    backdrop-filter: blur(8px); z-index: 10; min-width: 140px; }
+  #legend h3 { font-size: 11px; font-weight: 600; margin-bottom: 6px; color: #f97316; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  #tooltip { position: fixed; display: none;
+    background: rgba(15,23,42,0.95); border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 10px; padding: 10px 14px; font-size: 12px;
+    backdrop-filter: blur(8px); z-index: 20;
+    pointer-events: none; max-width: 200px; }
+  #tooltip .name { font-weight: 600; color: #f97316; font-size: 13px; }
+  #tooltip .detail { color: #94a3b8; margin-top: 2px; }
+  @media (max-width: 640px) { #legend { display: none; } #info { font-size: 10px; padding: 6px 12px; } }
+</style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="info">ZES System — 27 Services · Drag to orbit · Scroll to zoom · Click to open</div>
+  <div id="legend"><h3>Service Types</h3>
+    <div class="legend-item"><span class="legend-dot" style="background:#f97316"></span> Core Router</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span> Dashboard/UI</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span> AI Agent</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#8b5cf6"></span> MCP/Tool</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#ec4899"></span> Infrastructure</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Proxy/Gateway</div>
+  </div>
+  <div id="tooltip"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+  const SERVICES = [
+    {id:"r9",name:"9Router",port:20128,type:"core",color:0xf97316,size:1.8},
+    {id:"dashboard8083",name:"Dashboard v4",port:8083,type:"ui",color:0x3b82f6,size:1.4},
+    {id:"hermes-webui",name:"Hermes UI",port:8787,type:"ui",color:0x3b82f6,size:1.2},
+    {id:"hermes-gateway",name:"Hermes Gateway",port:0,type:"ai",color:0x10b981,size:1.2},
+    {id:"agent-ui",name:"ZES Agent",port:8084,type:"ai",color:0x10b981,size:1.4},
+    {id:"claude-dashboard",name:"Claude Teams",port:8788,type:"ui",color:0x3b82f6,size:1.2},
+    {id:"claude-proxy",name:"Claude Proxy",port:5905,type:"proxy",color:0xf59e0b,size:1.0},
+    {id:"zes-router-proxy",name:"Router Proxy",port:19997,type:"proxy",color:0xf59e0b,size:1.0},
+    {id:"zeschrome-mcp",name:"ZES Chrome MCP",port:5901,type:"mcp",color:0x8b5cf6,size:1.2},
+    {id:"claude-ui",name:"Claude UI",port:8767,type:"ui",color:0x3b82f6,size:1.0},
+    {id:"claude-ui-backend",name:"Claude Backend",port:8002,type:"ai",color:0x10b981,size:1.0},
+    {id:"claude-ui-frontend",name:"Claude Frontend",port:8080,type:"ui",color:0x3b82f6,size:1.0},
+    {id:"agent-dash",name:"Agent Dash",port:8002,type:"ai",color:0x10b981,size:1.0},
+    {id:"agent-dash-web",name:"Agent Dash Web",port:8003,type:"ui",color:0x3b82f6,size:1.0},
+    {id:"vscode-server",name:"VS Code Server",port:8000,type:"ui",color:0x3b82f6,size:1.4},
+    {id:"vscode-mobile",name:"VS Code Mobile",port:8001,type:"ui",color:0x3b82f6,size:1.2},
+    {id:"ttyd",name:"Web Terminal",port:7173,type:"infra",color:0xec4899,size:1.0},
+    {id:"chromium-cdp",name:"Chrome CDP",port:9222,type:"infra",color:0xec4899,size:1.0},
+    {id:"tor",name:"Tor Proxy",port:9050,type:"infra",color:0xec4899,size:0.8},
+    {id:"socat",name:"Socat Relay",port:8090,type:"infra",color:0xec4899,size:0.8},
+    {id:"cloudflare-tunnel",name:"CF Tunnel",port:0,type:"infra",color:0xec4899,size:0.8},
+    {id:"zes-9router-tunnel",name:"9R Tunnel",port:0,type:"proxy",color:0xf59e0b,size:0.8},
+    {id:"zes-affiliate",name:"Affiliate",port:8085,type:"ui",color:0x3b82f6,size:0.8},
+    {id:"zes-downloader",name:"Downloader",port:0,type:"infra",color:0xec4899,size:0.8},
+    {id:"9router-proxy",name:"9R Proxy",port:8082,type:"proxy",color:0xf59e0b,size:0.8},
+    {id:"claude-bridge-http",name:"Bridge HTTP",port:0,type:"proxy",color:0xf59e0b,size:0.8},
+    {id:"claude-bridge-ws",name:"Bridge WS",port:0,type:"proxy",color:0xf59e0b,size:0.8},
+  ];
+  const FLOWS = [
+    ["r9","dashboard8083"],["r9","hermes-webui"],["r9","agent-ui"],
+    ["r9","claude-proxy"],["r9","claude-dashboard"],["r9","claude-ui-backend"],
+    ["r9","zes-router-proxy"],["r9","agent-dash"],
+    ["dashboard8083","agent-dash"],["hermes-webui","hermes-gateway"],
+    ["claude-proxy","r9"],["zes-router-proxy","r9"],
+    ["vscode-server","vscode-mobile"],
+    ["claude-ui","claude-ui-frontend"],["claude-ui-frontend","claude-ui-backend"],
+    ["zeschrome-mcp","chromium-cdp"],["zeschrome-mcp","r9"],
+    ["agent-dash-web","agent-dash"],["agent-ui","r9"],
+    ["claude-bridge-http","r9"],["claude-bridge-ws","r9"],["tor","zeschrome-mcp"]
+  ];
+  const layout3d = [
+    {x:0,y:2,z:0},{x:4,y:1,z:3},{x:-3,y:1,z:4},{x:5,y:-1,z:-2},{x:-4,y:2,z:-3},
+    {x:7,y:1,z:1},{x:6,y:-2,z:-4},{x:-6,y:0,z:2},{x:8,y:-1,z:-1},
+    {x:2,y:4,z:3},{x:-2,y:3,z:5},{x:3,y:-3,z:4},{x:-3,y:-2,z:6},
+    {x:9,y:2,z:0},{x:10,y:-1,z:2},{x:-7,y:3,z:-1},{x:-8,y:-1,z:-3},
+    {x:-9,y:-2,z:1},{x:7,y:3,z:-4},{x:-5,y:-3,z:-4},{x:8,y:-3,z:3},
+    {x:11,y:1,z:-1},{x:-10,y:0,z:-2},{x:5,y:4,z:-3},{x:-4,y:-3,z:-5},
+    {x:6,y:-4,z:0},{x:-7,y:2,z:4}
+  ];
+  const container = document.getElementById('canvas-container');
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0f172a);
+  const camera = new THREE.PerspectiveCamera(60,container.clientWidth/container.clientHeight,0.1,1000);
+  camera.position.set(0,15,25);
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setSize(container.clientWidth,container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  container.appendChild(renderer.domElement);
+  const controls = new THREE.OrbitControls(camera,renderer.domElement);
+  controls.enableDamping=true; controls.dampingFactor=0.05; controls.autoRotate=true;
+  controls.autoRotateSpeed=0.5; controls.minDistance=5; controls.maxDistance=60;
+  new THREE.AmbientLight(0x334466,0.6); const dl=new THREE.DirectionalLight(0xffffff,0.8);
+  dl.position.set(10,20,10); scene.add(dl);
+  const bl=new THREE.DirectionalLight(0x4488ff,0.3); bl.position.set(-10,-5,-10); scene.add(bl);
+  const gh=new THREE.GridHelper(40,20,0x1e293b,0x1e293b); gh.position.y=-6; scene.add(gh);
+  const sg=new THREE.Group(); scene.add(sg);
+  const svcNodes={};
+  SERVICES.forEach((s,i)=>{
+    const p=layout3d[i]||{x:0,y:0,z:0};
+    const sp=new THREE.Mesh(new THREE.SphereGeometry(s.size*0.5,24,24),
+      new THREE.MeshPhysicalMaterial({color:s.color,metalness:0.3,roughness:0.4,emissive:s.color,emissiveIntensity:0.1}));
+    sp.position.set(p.x,p.y,p.z); sp.userData={service:s}; sg.add(sp);
+    const rg=new THREE.Mesh(new THREE.TorusGeometry(s.size*0.6,0.03,8,32),
+      new THREE.MeshBasicMaterial({color:s.color,transparent:true,opacity:0.4}));
+    rg.position.copy(sp.position); rg.rotation.x=Math.PI/2; sg.add(rg);
+    const c=document.createElement('canvas'); c.width=256; c.height=64;
+    const ctx=c.getContext('2d'); ctx.font='bold 22px sans-serif'; ctx.textAlign='center';
+    ctx.fillStyle='#e2e8f0'; ctx.fillText(s.name,128,38);
+    if(s.port){ctx.font='14px monospace';ctx.fillStyle='#64748b';ctx.fillText(':'+s.port,128,58);}
+    const tex=new THREE.CanvasTexture(c); tex.needsUpdate=true;
+    const sm=new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false});
+    const sp2=new THREE.Sprite(sm); sp2.position.set(p.x,p.y-s.size*0.8-0.8,p.z);
+    sp2.scale.set(4,1,1); sg.add(sp2);
+    svcNodes[s.id]={sphere:sp,pos:p,svc:s,ring:rg};
+  });
+  const fg=new THREE.Group(); scene.add(fg);
+  FLOWS.forEach(([from,to])=>{
+    const fn=svcNodes[from],tn=svcNodes[to]; if(!fn||!tn)return;
+    const p0=new THREE.Vector3(fn.pos.x,fn.pos.y,fn.pos.z);
+    const p1=new THREE.Vector3(tn.pos.x,tn.pos.y,tn.pos.z);
+    const mid=new THREE.Vector3().addVectors(p0,p1).multiplyScalar(0.5);
+    mid.y+=Math.sqrt(Math.pow(p1.x-p0.x,2)+Math.pow(p1.z-p0.z,2))*0.15;
+    const curve=new THREE.QuadraticBezierCurve3(p0,mid,p1);
+    const curvePts=curve.getPoints(20);
+    const g=new THREE.BufferGeometry().setFromPoints(curvePts);
+    const m=new THREE.LineBasicMaterial({color:0x334466,transparent:true,opacity:0.3});
+    fg.add(new THREE.Line(g,m));
+    const pg=new THREE.Mesh(new THREE.SphereGeometry(0.08,6,6),
+      new THREE.MeshBasicMaterial({color:0xf97316}));
+    pg.userData={curve,t:Math.random()}; fg.add(pg);
+  });
+  const starsG=new THREE.BufferGeometry();
+  const starP=new Float32Array(1500); for(let i=0;i<1500;i++)starP[i]=(Math.random()-0.5)*200;
+  starsG.setAttribute('position',new THREE.BufferAttribute(starP,3));
+  const stars=new THREE.Points(starsG,new THREE.PointsMaterial({color:0x445577,size:0.15,transparent:true,opacity:0.6}));
+  scene.add(stars);
+  const rc=new THREE.Raycaster(); const ms=new THREE.Vector2();
+  const tip=document.getElementById('tooltip'); let hs=null;
+  renderer.domElement.addEventListener('mousemove',e=>{
+    const r=renderer.domElement.getBoundingClientRect();
+    ms.x=(e.clientX-r.left)/r.width*2-1; ms.y=-(e.clientY-r.top)/r.height*2+1;
+    if(hs&&e.clientX){tip.style.left=e.clientX+12+'px';tip.style.top=e.clientY-20+'px';}
+  });
+  renderer.domElement.addEventListener('click',()=>{
+    if(hs){controls.autoRotate=false;const s=hs.userData.service;if(s.port)window.open('http://localhost:'+s.port+'/','_blank');}
+  });
+  function animate(){
+    const dt=0.016; const elapsed=performance.now()/1000;
+    fg.children.forEach(c=>{if(c.type==='Mesh'&&c.userData.curve){
+      c.userData.t+=dt*0.3; if(c.userData.t>1)c.userData.t=0;
+      c.position.copy(c.userData.curve.getPoint(c.userData.t));
+    }});
+    Object.values(svcNodes).forEach(n=>{if(n.ring)n.ring.rotation.z+=dt*0.005;});
+    rc.setFromCamera(ms,camera);
+    const meshes=sg.children.filter(c=>c.type==='Mesh');
+    const hits=rc.intersectObjects(meshes);
+    if(hits.length>0){
+      const obj=hits[0].object;
+      if(obj!==hs){if(hs){hs.material.emissiveIntensity=0.1;hs.scale.set(1,1,1);}
+        hs=obj; hs.material.emissiveIntensity=0.5; hs.scale.set(1.2,1.2,1.2);
+        const svc=hs.userData.service;
+        tip.style.display='block';
+        tip.innerHTML='<div class="name">'+svc.name+'</div>'+(svc.port?'<div class="detail">Port :'+svc.port+'</div>':'')+'<div class="detail">'+svc.type.toUpperCase()+'</div>';
+        renderer.domElement.style.cursor='pointer';
+      }
+    } else {
+      if(hs){hs.material.emissiveIntensity=0.1;hs.scale.set(1,1,1);hs=null;tip.style.display='none';renderer.domElement.style.cursor='grab';}
+    }
+    controls.update(); renderer.render(scene,camera); requestAnimationFrame(animate);
+  }
+  animate();
+  window.addEventListener('resize',()=>{const w=container.clientWidth,h=container.clientHeight;
+    camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);});
+  </script>
+</body>
+</html>
