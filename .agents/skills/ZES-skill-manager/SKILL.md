@@ -1,10 +1,13 @@
 ---
+category: Orchestration
+
 name: ZES-skill-manager
 description: Unified skill lifecycle management — discover, install, audit, and create skills across ZES, ECC, and plugin skill sources.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Skill Manager
 

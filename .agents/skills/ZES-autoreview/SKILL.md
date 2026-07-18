@@ -1,7 +1,10 @@
 ---
+category: Review
+
 name: zes-autoreview
 description: "Code review closeout for ZES System changes. Runs structured review before shipping code in any ZES repo or service."
 ---
+
 
 # ZES Auto Review
 

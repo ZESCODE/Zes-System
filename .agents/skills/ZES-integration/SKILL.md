@@ -1,10 +1,13 @@
 ---
+category: Orchestration
+
 name: ZES-integration
 description: Cross-agent orchestration — wire Codex, Hermes, OpenClaude, and ZES Memory Hub into unified workflows. Use when building integrations between ZES components.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Integration
 

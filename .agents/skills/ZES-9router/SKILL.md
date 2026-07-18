@@ -1,10 +1,13 @@
 ---
+category: Providers
+
 name: ZES-9router
 description: 9Router AI Gateway management — model routing, API key management, provider configuration, and load balancing across LLM providers.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES 9Router
 

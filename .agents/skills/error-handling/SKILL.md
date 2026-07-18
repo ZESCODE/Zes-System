@@ -1,9 +1,12 @@
 ---
+category: Core
+
 name: error-handling
 description: Patterns for robust error handling across TypeScript, Python, and Go. Covers typed errors, error boundaries, retries, circuit breakers, and user-facing error messages.
 metadata:
   origin: ECC
 ---
+
 
 # Error Handling Patterns
 

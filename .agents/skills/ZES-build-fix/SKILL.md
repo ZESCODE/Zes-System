@@ -1,4 +1,6 @@
 ---
+category: Review
+
 name: zes-build-fix
 description: Detect and fix build/startup errors in ZES services — dashboard, agent UI, MCP servers, Claude Code proxy.
 metadata:
@@ -6,6 +8,7 @@ metadata:
   adapted_from: ECC
   version: 1.0
 ---
+
 
 # ZES Build Fix
 

@@ -1,7 +1,10 @@
 ---
+category: Integrations
+
 name: 9router-integration
 description: Use when working with 9Router AI gateway — LLM chat/code generation, vector embeddings, web search, URL fetching. Combines chat, embeddings, search, and web fetch into one unified skill. Requires NINEROUTER_URL and optionally NINEROUTER_KEY.
 ---
+
 
 # 9Router — Unified Integration
 

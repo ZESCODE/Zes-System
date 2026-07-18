@@ -1,7 +1,10 @@
 ---
+category: Design
+
 name: designmd
 description: Use when building UI that needs a consistent design system, choosing colors/typography/spacing, or applying a DESIGN.md from designmd.ai to your codebase
 ---
+
 
 # DESIGN.md — Design Systems for AI Coding
 

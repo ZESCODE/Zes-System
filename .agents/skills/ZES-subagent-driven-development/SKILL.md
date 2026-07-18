@@ -1,7 +1,10 @@
 ---
+category: Development
+
 name: ZES-subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
 ---
+
 
 # Subagent-Driven Development
 

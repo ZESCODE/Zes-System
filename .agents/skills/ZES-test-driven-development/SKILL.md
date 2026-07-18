@@ -1,7 +1,10 @@
 ---
+category: Development
+
 name: ZES-test-driven-development
 description: Use when implementing any feature or bugfix, before writing implementation code
 ---
+
 
 # Test-Driven Development (TDD)
 
@@ -369,3 +372,299 @@ Otherwise → not TDD
 ```
 
 No exceptions without your human partner's permission.
+
+---
+### Merged from ZES-tdd
+
+---
+name: zes-tdd
+description: Test-driven development for ZES — write tests before implementation. Covers dashboard Python, agent Node.js, and shell scripts.
+metadata:
+  origin: ZES
+  adapted_from: ECC
+  version: 1.0
+---
+
+# ZES TDD Workflow
+
+Apply test-driven development to ZES system: dashboard_v4.py, agent-server.js, MCP servers, backup scripts.
+
+## When to Activate
+
+- Adding features to dashboard or agent UI
+- Creating new MCP tools or API endpoints
+- Modifying service management scripts
+- Refactoring existing ZES code
+
+## Workflow
+
+### Step 1: Write Test First
+```python
+# Example: test dashboard API
+def test_api_status_returns_services():
+    response = http_get("http://localhost:8083/api/status")
+    assert response.status == 200
+    data = json.loads(response.body)
+    assert "services" in data
+    assert "providers" in data
+```
+
+### Step 2: Run Tests (should fail)
+```bash
+python3 ~/Zes-System/scripts/run-tests.py
+```
+
+### Step 3: Implement
+```python
+class ZESHandler:
+    def _send_json(self, data, code=200):
+        # Minimal implementation to pass test
+        ...
+```
+
+### Step 4: Verify
+```bash
+python3 ~/Zes-System/scripts/run-tests.py  # Should pass
+python3 ~/Zes-System/scripts/run-evals.py  # Health check
+```
+
+## Coverage Targets
+- Python services: 80%+ line coverage
+- JavaScript/Node: 70%+ line coverage
+- Shell scripts: manual test for each exit path
+- Critical paths: 100% (service restart, API auth, backup/restore)
+
+
+---
+### Merged from ZES-tdd-workflow
+
+---
+name: zes-tdd-workflow
+description: Test-driven development for ZES services — dashboard, 9Router, Hermes, MCP scripts. Write tests first, then implement.
+---
+
+# ZES TDD Workflow
+
+Apply test-driven development to ZES system services: dashboard Python code, shell scripts, MCP servers, and 9Router configs.
+
+## When to Activate
+
+- Writing or modifying ZES service code
+- Adding API endpoints to dashboard
+- Creating new scripts or cron jobs
+- Refactoring existing ZES infrastructure code
+
+## Core Principles
+
+### 1. Tests BEFORE Code
+Write the test first, then implement the code to make it pass.
+
+### 2. Coverage Requirements
+- Minimum 80% coverage for Python/TypeScript code
+- All edge cases covered
+- Error scenarios tested
+
+### 3. Test Types for ZES
+
+#### Unit Tests
+```python
+# Test dashboard service card rendering
+def test_service_card_running():
+    svc = {"id": "codex", "name": "Codex", "status": "running", "port": 5900}
+    card = render_service_card(svc)
+    assert "● Up" in card
+    assert "5900" in card
+```
+
+#### Integration Tests
+```bash
+# Test 9Router API responds
+response=$(curl -s http://localhost:20128/api/providers)
+echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d['connections']) > 0"
+```
+
+#### Health Check Tests
+```bash
+# Test all ZES services respond
+for svc in r9 hermes codex; do
+  port_map="r9:20128 hermes:8787 codex:5900"
+  port=$(echo $port_map | grep -o "$svc:[0-9]*" | cut -d: -f2)
+  if curl -s http://localhost:$port > /dev/null 2>&1; then
+    echo "PASS: $svc on :$port"
+  else
+    echo "FAIL: $svc on :$port"
+  fi
+done
+```
+
+## TDD Workflow
+
+### Step 1: Write the Failing Test
+```python
+# tests/test_dashboard_api.py
+def test_status_endpoint():
+    import urllib.request
+    resp = urllib.request.urlopen("http://localhost:8083/api/status")
+    assert resp.status == 200
+    data = json.loads(resp.read())
+    assert "services" in data
+```
+
+### Step 2: Run — It Should Fail
+```bash
+pytest tests/test_dashboard_api.py -v
+# Expected: FAIL (endpoint not implemented yet)
+```
+
+### Step 3: Implement
+```python
+# dashboard_v3.py
+class DashboardHandler:
+    def do_GET(self):
+        if self.path == '/api/status':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.wfile.write(json.dumps(get_status()).encode())
+```
+
+### Step 4: Run — It Should Pass
+```bash
+pytest tests/test_dashboard_api.py -v
+# Expected: PASS
+```
+
+## ZES-Specific Testing Patterns
+
+### Testing Shell Scripts
+```bash
+# Unit test for a shell function
+test_port_check() {
+  local result=$(ss -tlnp 2>/dev/null | grep -c ":5900")
+  if [ "$result" -eq 1 ]; then
+    echo "PASS: port 5900 is listening"
+  else
+    echo "FAIL: port 5900 not found"
+  fi
+}
+```
+
+### Testing MCP Tools
+```python
+def test_mcp_tool_call():
+    import subprocess
+    result = subprocess.run(
+        ["sv", "status", "zeschrome-mcp"],
+        capture_output=True, text=True
+    )
+    assert "run:" in result.stdout
+```
+
+## Best Practices
+
+1. **Test what users/agents see**, not internal state
+2. **One assertion per test** — focus on single behavior
+3. **Mock external services** — don't depend on live 9Router in unit tests
+4. **Test error paths** — what happens when a service is down?
+5. **Keep tests fast** — health check tests < 5s
+6. **CI gate** — run tests before deploying dashboard changes
+
+## Common ZES Mistakes to Avoid
+
+```python
+# FAIL: Testing implementation details
+assert dashboard._services_cache[0]["id"] == "codex"
+
+# PASS: Testing user-visible behavior
+resp = client.get("/api/status")
+assert resp.json["services"][0]["id"] == "codex"
+```
+
+**Remember**: Tests are the safety net that lets you refactor ZES services confidently.
+
+---
+### Merged from ZES-testing
+
+---
+name: zes-testing
+description: "Test, verify, and debug ZES System services, proxy configurations, and API endpoints."
+---
+
+# ZES Testing
+
+Use when validating changes to ZES services, testing proxy configurations, or debugging service failures.
+
+## Default Rule
+
+Prove the changed surface first. Do not reflexively test everything.
+
+1. Inspect the diff and classify the change:
+   - **Dashboard change**: Restart and check `/api/status` returns valid JSON
+   - **Proxy/server change**: Verify target reachable, proxy returns 200, wrapper injection works
+   - **Service config change** (run script): Restart service, check `sv status`, check port is listening
+   - **Documentation only**: Verify format with a quick scan
+
+## Service Verification
+
+```bash
+# 1. Check service is running
+sv status /data/data/com.termux/files/usr/var/service/<name>
+
+# 2. Check port is listening
+ss -tlnp 2>/dev/null | grep <port>
+
+# 3. Check HTTP health endpoint (if available)
+curl -s http://localhost:<port>/health
+
+# 4. Check service logs for errors
+tail -10 /data/data/com.termux/files/var/log/<name>/current
+```
+
+## Proxy Verification (VS Code Mobile)
+
+```bash
+# Health endpoint
+curl -s http://localhost:8001/health
+
+# Proxy test - should return 200 (VS Code behind proxy)
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/
+
+# Verify wrapper injection
+curl -s http://localhost:8001/ | grep -c 'zes-mobile-bar'
+
+# WebSocket proxy test
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/ | grep 200
+```
+
+## API Endpoint Testing
+
+```bash
+# Dashboard status
+curl -s http://localhost:8083/api/status | python3 -m json.tool
+
+# 9Router provider check
+TOKEN=$(python3 -c "import hashlib;d=open('$HOME/.9router/machine-id').read().strip();s=open('$HOME/.9router/auth/cli-secret').read().strip();print(hashlib.sha256((d+'9r-cli-auth'+s).encode()).hexdigest()[:16])")
+curl -s -H "x-9r-cli-token: $TOKEN" http://localhost:20128/api/providers | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Providers: {len(d.get(\"connections\",[]))}')"
+
+# MCP server health
+curl -s http://localhost:5901/health
+```
+
+## Debugging Common Issues
+
+### Service won't start
+1. Check run script syntax: `bash -n /path/to/run`
+2. Check run script permissions: `ls -la /path/to/run`
+3. Check for port conflicts: `ss -tlnp | grep <port>`
+4. View full log: `cat /data/data/com.termux/files/var/log/<name>/current`
+
+### Proxy returning errors
+1. Check target service is running
+2. Check proxy logs for error messages
+3. Test target directly with curl
+4. Check for WebSocket upgrade failures
+
+### Wrapper not injecting
+1. Check that HTML response contains `</body>` tag
+2. Check that wrapper-head.html and wrapper-foot.html exist
+3. Check content-type is text/html
+4. Test with curl and grep for injected elements

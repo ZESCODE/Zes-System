@@ -1,7 +1,10 @@
 ---
+category: Frontend
+
 name: dashboard-builder
 description: "Build production dashboards with React 19 + shadcn/ui + Tailwind CSS v4 + Vite 8 + Lucide Icons. Use when creating new dashboard UIs, adding dashboard pages (kanban, chat, system monitor, service grid), or implementing mobile-responsive layouts with bottom navigation. Covers the full stack: setup, hash-based routing, mobile optimization, shadcn primitives, data-fetching hooks, and all component patterns (kanban board with drag-and-drop, chat interface, service grid with controls, theme designer, iframe pages, summary cards, process lists, system info, network info, web service cards)."
 ---
+
 
 # Dashboard Builder
 

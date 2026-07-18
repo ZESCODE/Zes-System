@@ -1,4 +1,6 @@
 ---
+category: Core
+
 name: ecc-integration
 description: Unified ECC development workflow integrating Core Workflow, Testing & QA, Frontend, and Backend skills. One skill to rule the dev cycle — plan, code, test, review, deploy.
 metadata:
@@ -10,6 +12,7 @@ metadata:
     - frontend
     - backend
 ---
+
 
 # ECC Unified Integration
 

@@ -1,10 +1,13 @@
 ---
+category: Dashboard
+
 name: ZES-design
 description: Design system — apply Polybot/DESIGN.md theme to UI components. Colors, typography, spacing, and blue glowing panel styling.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Design System
 

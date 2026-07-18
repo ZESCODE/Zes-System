@@ -1,10 +1,13 @@
 ---
+category: Memory
+
 name: ZES-memory-ops
 description: Unified memory hub operations — search, write, sync, and repair memories across Codex, Hermes, and OpenClaude stores via ZESMemoryProvider.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Memory Operations
 

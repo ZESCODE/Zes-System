@@ -1,10 +1,13 @@
 ---
+category: Orchestration
+
 name: ZES-agentic-core
 description: Core agent behavior patterns — agentic engineering, eval-first execution, decomposition, and cost-aware model routing for the ZES system.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Agentic Core
 

@@ -1,10 +1,13 @@
 ---
+category: Providers
+
 name: ZES-provider-manager
 description: LLM provider discovery and configuration — manage API keys, routing, and fallbacks across Groq, OpenAI, Anthropic, Gemini, Alibaba, Cloudflare Workers AI, and free models.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Provider Manager
 

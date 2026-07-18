@@ -1,7 +1,10 @@
 ---
+category: Uncategorized
+
 name: freellm
 description: Use when you need free AI model API keys, free LLM provider configuration, or want to discover free AI models for Codex, Claude Code, or Cursor
 ---
+
 
 # FreeLLM — Free AI API Resources
 

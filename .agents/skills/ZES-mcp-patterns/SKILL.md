@@ -1,7 +1,10 @@
 ---
+category: Development
+
 name: zes-mcp-patterns
 description: Build and extend MCP servers for ZES — tools, resources, Zod validation, stdio/HTTP transport. Use when working with zeschrome-mcp or adding new MCP capabilities.
 ---
+
 
 # ZES MCP Server Patterns
 

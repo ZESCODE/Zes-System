@@ -1,7 +1,10 @@
 ---
+category: Review
+
 name: zes-bugfix-sweep
 description: "Fix only small, high-certainty bugs in ZES system services: 9Router, Dashboard, Claude Code, MCP, Hermes, scripts."
 ---
+
 
 # ZES Bugfix Sweep
 

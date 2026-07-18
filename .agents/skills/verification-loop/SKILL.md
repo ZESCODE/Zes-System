@@ -1,9 +1,12 @@
 ---
+category: Core
+
 name: verification-loop
 description: "A comprehensive verification system for Claude Code sessions."
 metadata:
   origin: ECC
 ---
+
 
 # Verification Loop Skill
 

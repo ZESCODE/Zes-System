@@ -1,4 +1,6 @@
 ---
+category: DevOps
+
 name: system-orchestrator
 description: Unified system orchestrator for managing all Termux services — ZES Core, 9Router AI Gateway, Hermes Agent, OpenClaw, React Dashboard, OpenCode Zen, and Codex CLI. Start, stop, monitor, and route between all services from one place.
 metadata:
@@ -13,6 +15,7 @@ metadata:
     - opencode-zen
     - codex-cli
 ---
+
 
 # System Orchestrator — Unified Service Manager
 

@@ -1,10 +1,13 @@
 ---
+category: Memory
+
 name: ZES-cost-tracker
 description: API cost tracking and budget management — monitor token usage, spending, and budgets across all LLM providers.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Cost Tracker
 

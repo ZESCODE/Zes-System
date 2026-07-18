@@ -1,4 +1,6 @@
 ---
+category: Orchestration
+
 name: ZES-skill-orchestrator
 description: Master skill orchestrator for the ZES ecosystem. Discovers, loads, and coordinates all 28 ZES skills. Use when starting any session — establishes skill hierarchy and routing rules.
 metadata:
@@ -7,6 +9,7 @@ metadata:
   replaces: using-superpowers
   total_skills: 29
 ---
+
 
 # ZES Skill Orchestrator
 

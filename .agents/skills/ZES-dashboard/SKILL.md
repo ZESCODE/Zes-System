@@ -1,10 +1,13 @@
 ---
+category: Dashboard
+
 name: ZES-dashboard
 description: Build and maintain the ZES System Dashboard — React 19 + shadcn/ui + Vite 8 + Tailwind CSS v4. Service status, memory viewer, design studio, kanban board.
 metadata:
   origin: ZES
   version: 1.0.0
 ---
+
 
 # ZES Dashboard
 

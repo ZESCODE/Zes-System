@@ -1,4 +1,6 @@
 ---
+category: Orchestration
+
 name: ZES-service-orchestrator
 description: Manage all ZES services — start, stop, monitor, and route between 9Router, Hermes, OpenClaude, Dashboard, and Codex CLI. Unified service lifecycle for the ZES ecosystem.
 metadata:
@@ -11,6 +13,7 @@ metadata:
     - dashboard (:5173)
     - old-zes-core (:8082)
 ---
+
 
 # ZES Service Orchestrator
 
