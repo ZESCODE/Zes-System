@@ -24,7 +24,7 @@ Defines how ZES agents behave: decompose tasks, evaluate, route, and execute.
 |-------|---------|
 | Codex | Primary coding agent |
 | Hermes | Persistent agent with memory |
-| OpenClaude | Terminal chat UI + tools |
+| Claude Code | Secondary coding agent (parallel, code review) |
 | ZESMemoryProvider | Memory authority |
 | 9Router | LLM routing gateway |
 
