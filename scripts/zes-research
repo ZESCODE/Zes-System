@@ -1,0 +1,415 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""ZES Parallel Research Engine — Multi-Model Sub-Agent Swarm.
+
+Spawns N parallel AI agents across different providers/models to research
+a topic from multiple angles, then synthesizes results into a final report.
+
+Usage:
+  zes-research "What is the impact of AI on healthcare?"
+  zes-research "Topic" --agents 4
+  zes-research "Topic" --output ~/research.md --silent
+  zes-research "Topic" --providers bitrouter_gpt openrouter_key groq_key
+"""
+
+import asyncio, aiohttp, json, sys, os, argparse, textwrap, subprocess, re
+from datetime import datetime
+from typing import Optional
+
+# ─── Load API Keys ────────────────────────────────────────────────
+def _load_env():
+    """Load master.env into os.environ."""
+    env_file = os.path.expanduser("~/.secure-credentials/master.env")
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("export "):
+                    parts = line[7:].split("=", 1)
+                    if len(parts) == 2:
+                        val = parts[1].strip("\"'")
+                        if val:
+                            os.environ.setdefault(parts[0], val)
+_load_env()
+
+# ─── Provider Config ───────────────────────────────────────────────
+# Direct API calls (bypass proxies to avoid single-threaded bottlenecks)
+DIRECT_PROVIDERS = {
+    "groq_key": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "model": "llama-3.3-70b-versatile",
+        "env_key": "GROQ_API_KEY",
+        "name": "Groq (Llama 3.3 70B)",
+    },
+    "openrouter_key": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "deepseek/deepseek-v4-flash",
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "OpenRouter (DeepSeek V4)",
+    },
+    "mistral_key": {
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "model": "mistral-medium-2505",
+        "env_key": "MISTRAL_API_KEY",
+        "name": "Mistral AI (Medium)",
+    },
+    "nvidia_key": {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "model": "meta/llama-3.1-70b-instruct",
+        "env_key": "NVIDIA_API_KEY",
+        "name": "NVIDIA NIM (Llama 3.1 70B)",
+    },
+}
+
+# Proxy-based providers (through BitRouter — handles concurrency fine)
+PROXY_PROVIDERS = {
+    "bitrouter_gpt": {
+        "url": "http://127.0.0.1:4356/v1/chat/completions",
+        "model": "openai/gpt-5.4-mini",
+        "env_key": None,
+        "name": "BitRouter (GPT-5.4 Mini)",
+    },
+    "bitrouter_gemini": {
+        "url": "http://127.0.0.1:4356/v1/chat/completions",
+        "model": "google/gemini-3.5-flash",
+        "env_key": None,
+        "name": "BitRouter (Gemini 3.5 Flash)",
+    },
+}
+
+ALL_PROVIDERS = {**DIRECT_PROVIDERS, **PROXY_PROVIDERS}
+
+# ─── Research Angles ───────────────────────────────────────────────
+def make_angle_prompts(topic: str, num_agents: int) -> list[dict]:
+    """Generate N distinct research angles."""
+    angles = [
+        {
+            "name": "Technical Analysis",
+            "prompt": f"You are a technical research specialist. Analyze this topic thoroughly:\n\nTopic: {topic}\n\nProvide:\n1. Core technical components and architecture\n2. Key technologies, frameworks, or methodologies\n3. Technical challenges and limitations\n4. Performance metrics or benchmarks\n5. Notable implementations or case studies\n\nBe specific, cite concrete examples, include technical depth."
+        },
+        {
+            "name": "Strategic & Market Analysis",
+            "prompt": f"You are a business/strategy analyst. Analyze from a market perspective:\n\nTopic: {topic}\n\nProvide:\n1. Market size, growth trajectory, key players\n2. Business models and monetization\n3. Competitive landscape\n4. Target industries and use cases\n5. ROI, costs, adoption barriers\n\nInclude specific companies, funding data, market trends."
+        },
+        {
+            "name": "Latest Developments",
+            "prompt": f"You are a news/research analyst tracking cutting-edge developments:\n\nTopic: {topic}\n\nProvide:\n1. Most recent breakthroughs or releases (2025-2026)\n2. Key research papers, announcements, product launches\n3. Emerging trends and future directions\n4. Regulatory changes or policy\n5. Expert opinions or controversies\n\nBe specific with dates, names, sources."
+        },
+        {
+            "name": "Critical Analysis & Limitations",
+            "prompt": f"You are a critical analyst focused on risks and limitations:\n\nTopic: {topic}\n\nProvide:\n1. Major limitations, risks, failure modes\n2. Ethical concerns, biases, societal impacts\n3. Security vulnerabilities or adversarial risks\n4. Scalability bottlenecks\n5. Competing approaches challenging the paradigm\n\nBe CONSTRUCTIVELY critical. Include real failures or controversies."
+        },
+        {
+            "name": "Practical Implementation",
+            "prompt": f"You are a hands-on practitioner. Analyze practical application:\n\nTopic: {topic}\n\nProvide:\n1. Getting started guide — tools, SDKs, platforms\n2. Best practices and common pitfalls\n3. Real-world integration patterns\n4. Performance optimization tips\n5. Tool/platform comparisons with recommendations\n\nInclude actionable advice, code snippets, config examples."
+        },
+        {
+            "name": "Comparative Analysis",
+            "prompt": f"You are a comparative analyst. Compare approaches within:\n\nTopic: {topic}\n\nProvide:\n1. Comparison of major approaches/methodologies\n2. Pros and cons of each\n3. Decision framework — which for which scenario\n4. Cost-benefit analysis\n5. Migration paths between approaches\n\nUse structured format, be objective and evidence-based."
+        },
+    ]
+    return angles[:num_agents]
+
+
+# ─── API Calls ─────────────────────────────────────────────────────
+async def call_provider(session: aiohttp.ClientSession, provider: str,
+                        prompt: str, timeout: int = 60) -> Optional[str]:
+    """Call a single provider with the given prompt."""
+    cfg = ALL_PROVIDERS.get(provider)
+    if not cfg:
+        return f"[ERROR: Unknown provider '{provider}']"
+
+    # Build headers
+    headers = {"Content-Type": "application/json"}
+    if cfg.get("env_key"):
+        key = os.environ.get(cfg["env_key"])
+        if not key:
+            return f"[ERROR: Missing API key {cfg['env_key']}]"
+        headers["Authorization"] = f"Bearer {key}"
+
+    # OpenRouter needs extra headers
+    if "openrouter" in provider:
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Research Engine"
+
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": "You are a research specialist. Be thorough, specific, and well-structured. Use markdown formatting."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    }
+
+    try:
+        async with session.post(
+            cfg["url"],
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            headers=headers,
+        ) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                return f"[HTTP {resp.status} from {provider}: {text[:200]}]"
+            data = await resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content.strip() if content else "[Empty response]"
+    except asyncio.TimeoutError:
+        return f"[TIMEOUT: {provider} ({timeout}s)]"
+    except Exception as e:
+        return f"[ERROR: {provider} — {str(e)[:200]}]"
+
+
+async def call_synthesizer(session: aiohttp.ClientSession, topic: str,
+                           results: list[dict], timeout: int = 120) -> str:
+    """Synthesize multiple research results into a final report."""
+    # Build synthesis sections
+    sections = []
+    for r in results:
+        angle = r["angle"]
+        content = r["content"]
+        if len(content) > 3000:
+            content = content[:3000] + "\n\n[...truncated]"
+        sections.append(f"## {angle}\n\n{content}")
+
+    all_sections = "\n\n".join(sections)
+
+    # Use BitRouter GPT for synthesis (it's fast)
+    synth_url = PROXY_PROVIDERS["bitrouter_gpt"]["url"]
+    synth_model = PROXY_PROVIDERS["bitrouter_gpt"]["model"]
+
+    synthesis_prompt = f"""You are a research synthesis specialist. Combine the following multi-agent research into a comprehensive final report.
+
+Topic: {topic}
+
+Each section is from a different AI agent with a unique perspective. Synthesize them into a coherent report that integrates insights, resolves contradictions, and highlights the most important findings.
+
+Research Results:
+{all_sections}
+
+Format the final report with:
+- Executive Summary (bullet points, max 5)
+- Key Findings (organized by theme)
+- Detailed Analysis
+- Critical Assessment
+- Conclusions & Recommendations
+- Sources credited per section"""
+
+    payload = {
+        "model": synth_model,
+        "messages": [
+            {"role": "system", "content": "You are an expert research synthesist. Produce well-structured, insightful reports that integrate multiple perspectives."},
+            {"role": "user", "content": synthesis_prompt},
+        ],
+        "temperature": 0.5,
+        "max_tokens": 4096,
+    }
+
+    try:
+        async with session.post(
+            synth_url,
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            headers={"Content-Type": "application/json"},
+        ) as resp:
+            if resp.status != 200:
+                return f"[Synthesis failed: HTTP {resp.status}]"
+            data = await resp.json()
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "[Empty synthesis]")
+    except Exception as e:
+        return f"[Synthesis error: {str(e)[:200]}]"
+
+
+# ─── Health Check ──────────────────────────────────────────────────
+async def check_providers() -> list[str]:
+    """Check which providers are online with a quick ping."""
+    online = []
+    async with aiohttp.ClientSession() as session:
+        for name, cfg in ALL_PROVIDERS.items():
+            try:
+                headers = {"Content-Type": "application/json"}
+                if cfg.get("env_key"):
+                    key = os.environ.get(cfg["env_key"])
+                    if not key:
+                        continue
+                    headers["Authorization"] = f"Bearer {key}"
+                # Quick ping with minimal tokens
+                payload = {
+                    "model": cfg["model"],
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 5,
+                }
+                async with session.post(
+                    cfg["url"], json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        online.append(name)
+            except:
+                pass
+    return online
+
+
+# ─── Main ──────────────────────────────────────────────────────────
+async def main():
+    parser = argparse.ArgumentParser(
+        description="ZES Parallel Research Engine — Multi-Model Sub-Agent Swarm",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes-research "Impact of AI on healthcare"
+              zes-research "Topic" --agents 6
+              zes-research "Topic" --providers bitrouter_gpt openrouter_key groq_key
+              zes-research "Topic" --output ~/research/report.md
+              zes-research "Topic" --no-synthesize
+              zes-research --check
+        """),
+    )
+    parser.add_argument("topic", nargs="?", help="Research topic/question")
+    parser.add_argument("--agents", "-a", type=int, default=3,
+                        help="Number of parallel sub-agents (1-6, default: 3)")
+    parser.add_argument("--output", "-o", type=str, default="",
+                        help="Save report to file")
+    parser.add_argument("--providers", "-p", type=str, nargs="*",
+                        help="Specific providers to use (space-separated)")
+    parser.add_argument("--no-synthesize", action="store_true",
+                        help="Output raw per-agent results without synthesis")
+    parser.add_argument("--silent", "-s", action="store_true",
+                        help="Minimal output — just the report")
+    parser.add_argument("--check", action="store_true",
+                        help="Check which providers are online and exit")
+    parser.add_argument("--timeout", type=int, default=60,
+                        help="Per-agent timeout in seconds (default: 60)")
+
+    args = parser.parse_args()
+
+    if args.check:
+        print("Checking providers...")
+        online = await check_providers()
+        print(f"\n{'─'*50}")
+        for name, cfg in sorted(ALL_PROVIDERS.items()):
+            status = "✅ ONLINE" if name in online else "❌ OFFLINE/MISSING KEY"
+            key_status = "🔑" if cfg.get("env_key") else "🔓"
+            print(f"  {key_status} {name:25s} → {cfg['name']:35s} {status}")
+        print(f"\n{len(online)}/{len(ALL_PROVIDERS)} providers available")
+        return
+
+    if not args.topic:
+        parser.print_help()
+        sys.exit(1)
+
+    # Select providers
+    if args.providers:
+        selected = [p for p in args.providers if p in ALL_PROVIDERS]
+        if not selected:
+            print("ERROR: No valid providers specified. Use --check to see available providers.")
+            sys.exit(1)
+    else:
+        # Auto-select: direct providers first (truly parallel), then proxy
+        preferred = ["openrouter_key", "groq_key", "bitrouter_gpt", "mistral_key",
+                      "bitrouter_gemini", "nvidia_key"]
+        num_agents = min(args.agents, len(preferred))
+        selected = preferred[:num_agents]
+
+    # Check selected have keys
+    for p in selected:
+        cfg = ALL_PROVIDERS.get(p, {})
+        if cfg.get("env_key") and not os.environ.get(cfg["env_key"]):
+            print(f"  ⚠️  {p}: Missing {cfg['env_key']} — will fail")
+
+    angles = make_angle_prompts(args.topic, len(selected))
+
+    if not args.silent:
+        print(f"\n{'═'*60}")
+        print(f"  ZES Parallel Research Engine v1.0")
+        print(f"{'═'*60}")
+        print(f"  Topic:    {args.topic}")
+        print(f"  Agents:   {len(selected)}")
+        print(f"  Providers:")
+        for i, (prov, angle) in enumerate(zip(selected, angles)):
+            print(f"    [{i+1}] {prov:25s} → {angle['name']}")
+        print(f"{'═'*60}\n")
+
+    # Run parallel research
+    async with aiohttp.ClientSession() as session:
+        if not args.silent:
+            print(f"  🚀 Launching {len(selected)} research agents in parallel...\n")
+
+        tasks = [
+            call_provider(session, provider, angle["prompt"], args.timeout)
+            for provider, angle in zip(selected, angles)
+        ]
+
+        results_data = await asyncio.gather(*tasks)
+
+        results = []
+        for i, (provider, angle, content) in enumerate(zip(selected, angles, results_data)):
+            status = "✅" if not content.startswith("[ERROR") and not content.startswith("[TIMEOUT") else "❌"
+            if not args.silent:
+                print(f"  {status} Agent [{i+1}] {provider:25s} {angle['name']:30s} {len(content)} chars")
+            results.append({
+                "provider": provider,
+                "angle": angle["name"],
+                "content": content,
+            })
+
+        if args.no_synthesize:
+            for r in results:
+                print(f"\n{'─'*50}")
+                print(f"  [{r['provider']}] {r['angle']}")
+                print(f"{'─'*50}")
+                print(r["content"])
+            return
+
+        if not args.silent:
+            print(f"\n  🔄 Synthesizing results...")
+
+        synthesis = await call_synthesizer(session, args.topic, results)
+
+        # Build final report
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        failed = sum(1 for r in results if r["content"].startswith("[ERROR") or r["content"].startswith("[TIMEOUT"))
+        total = len(results)
+
+        report = f"""# ZES Parallel Research Report
+
+**Topic:** {args.topic}
+**Generated:** {timestamp}
+**Agents:** {total} ({total - failed} succeeded, {failed} failed)
+**Providers:** {', '.join(f'{p}→{a["name"]}' for p, a in zip(selected, angles))}
+
+---
+
+{synthesis}
+
+---
+
+*Report generated by ZES Parallel Research Engine — {total} sub-agents across {len(set(selected))} providers*
+"""
+
+        print(f"\n{'═'*60}")
+        print(f"  FINAL REPORT")
+        print(f"{'═'*60}\n")
+        print(report)
+
+        # Save to file
+        if args.output:
+            outpath = os.path.expanduser(args.output)
+            os.makedirs(os.path.dirname(outpath) or ".", exist_ok=True)
+            with open(outpath, "w") as f:
+                f.write(report)
+            print(f"\n  💾 Saved to: {outpath}")
+
+        # Auto-save
+        research_dir = os.path.expanduser("~/.zes/research")
+        os.makedirs(research_dir, exist_ok=True)
+        safe_topic = re.sub(r'[^\w\s-]', '', args.topic)[:50].strip().replace(' ', '_')
+        auto_path = f"{research_dir}/{safe_topic}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        with open(auto_path, "w") as f:
+            f.write(report)
+        if not args.silent:
+            print(f"  💾 Auto-saved to: {auto_path}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
