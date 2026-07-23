@@ -26,6 +26,10 @@ case "${1:-help}" in
     shift
     exec python3 "$QUALITY_ENGINE" "$@"
     ;;
+  verify|v)
+    shift
+    exec python3 "$HOME/.local/bin/zes-verify" "$@"
+    ;;
   --check|-c|check)
     echo "=== Research Providers ==="
     python3 "$RESEARCH_ENGINE" --check

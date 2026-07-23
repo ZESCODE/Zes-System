@@ -1,0 +1,527 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""
+ZES Verification Before Completion — 3-Agent Parallel Verifier.
+
+Spawns 3 parallel AI agents to verify work before claiming completion:
+  Test Verifier      → Runs tests, checks red-green cycle, reports results
+  Type/Lint Checker  → Runs type checkers, linters, code analysis
+  Requirements Check → Verifies against plan/requirements, acceptance criteria
+
+The Iron Law: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.
+
+Usage:
+  zes verify                          # Verify current project (auto-detect)
+  zes verify --dir ~/project          # Specific project
+  zes verify --plan docs/plan.md      # Verify against an implementation plan
+  zes verify --quick                  # Run local tools only, no AI
+  zes verify --ci                     # CI mode — exit 1 on failure
+"""
+
+import asyncio, json, os, sys, argparse, textwrap, subprocess, re
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+# ─── AI Provider Config ──────────────────────────────────────────
+
+VERIFY_PROVIDERS = {
+    "tester": {
+        "url": os.environ.get("TESTER_URL", "https://api.groq.com/openai/v1/chat/completions"),
+        "model": os.environ.get("TESTER_MODEL", "llama-3.3-70b-versatile"),
+        "env_key": "GROQ_API_KEY",
+        "name": "Test Verifier (Groq Llama 3.3)",
+    },
+    "typecheck": {
+        "url": os.environ.get("TYPECHECK_URL", "https://openrouter.ai/api/v1/chat/completions"),
+        "model": os.environ.get("TYPECHECK_MODEL", "deepseek/deepseek-v4-flash"),
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "Type/Lint Checker (OpenRouter DeepSeek V4)",
+    },
+    "requirements": {
+        "url": os.environ.get("REQUIREMENTS_URL", "https://api.llm7.io/v1/chat/completions"),
+        "model": os.environ.get("REQUIREMENTS_MODEL", "codestral-latest"),
+        "env_key": "LLM7_API_KEY",
+        "name": "Requirements Checker (LLM7 Codestral)",
+    },
+}
+
+# ─── Agent Prompts ───────────────────────────────────────────────
+
+TESTER_PROMPT = """You are the **Test Verifier** in a 3-agent Verification Before Completion system.
+
+Your job: Analyze the test results and determine if the code has been properly verified.
+
+Instructions:
+1. Review the test output below
+2. Check:
+   - Do ALL tests pass? (zero failures)
+   - Is there evidence of a red-green cycle? (test failed before fix, passed after)
+   - Are edge cases covered? (empty, null, error states, boundary conditions)
+   - Are integration tests passing for critical paths?
+   - Any flaky tests (intermittent failures)?
+3. Be SPECIFIC — which tests, what output, what's missing
+
+Output:
+- TESTS_PASSING: Yes/No (with count: X/Y passing)
+- RED_GREEN_EVIDENCE: Is there proof of red-green cycle? (Yes/No)
+- CRITICAL_GAPS: Tests that should exist but don't
+- VERDICT: ✅ VERIFIED or ❌ FAILED or ⚠️ INCOMPLETE"""
+
+TYPECHECK_PROMPT = """You are the **Type/Lint Checker** in a 3-agent Verification Before Completion system.
+
+Your job: Analyze type checking and linting results.
+
+Instructions:
+1. Review the type check and lint output below
+2. Check:
+   - Are there any type errors? (mypy/pyright output)
+   - Are there any lint errors? (pylint/flake8/eslint output)
+   - Any unused imports, dead code, naming violations?
+   - Any 'any' types or type escapes that defeat type checking?
+   - Are type hints complete for public APIs?
+3. Be SPECIFIC — file paths, line numbers, exact errors
+
+Output:
+- TYPE_ERRORS: Count and list (0 is ideal)
+- LINT_ERRORS: Count and list (0 is ideal)
+- CODE_QUALITY: Overall assessment (CLEAN / MINOR_ISSUES / NEEDS_WORK)
+- VERDICT: ✅ PASS or ❌ FAIL or ⚠️ WARNINGS"""
+
+REQUIREMENTS_PROMPT = """You are the **Requirements Checker** in a 3-agent Verification Before Completion system.
+
+Your job: Verify that the implementation satisfies the requirements/plan.
+
+Instructions:
+1. Review the plan/requirements and code changes below
+2. Check:
+   - Are ALL requirements from the plan implemented?
+   - Are there acceptance criteria that aren't met?
+   - Are there edge cases or error conditions not handled?
+   - Is the implementation faithful to the design?
+   - Any scope creep (features added beyond requirements)?
+3. Be SPECIFIC — which requirements are met, which are missing
+
+Output:
+- REQUIREMENTS_MET: X of Y complete
+- MISSING: Requirements not yet implemented
+- SCOPE_CREEP: Anything added beyond the plan
+- VERDICT: ✅ COMPLETE or ❌ INCOMPLETE or ⚠️ PARTIAL"""
+
+
+# ─── Local Tool Runners ──────────────────────────────────────────
+
+def run_tests_local(project_dir: str) -> str:
+    """Run test suite and return results."""
+    results = []
+    root = Path(project_dir)
+    test_files = list(root.rglob("test*.py")) + list(root.rglob("*test*.py"))
+    test_files = [f for f in test_files if "node_modules" not in str(f) and ".git" not in str(f)]
+    
+    if not test_files:
+        return "📄 No test files found"
+    
+    results.append(f"📄 Found {len(test_files)} test files")
+    
+    # Try running tests
+    test_runners = [
+        ["python3", "-m", "pytest", "-x", "-q", "--tb=short", "--timeout=60"],
+        ["python3", "-m", "pytest", "-x", "-q", "--tb=short"],
+        ["python3", "-m", "unittest", "discover", "-v"],
+    ]
+    
+    for runner in test_runners:
+        try:
+            proc = subprocess.run(
+                runner, capture_output=True, text=True, timeout=120, cwd=project_dir
+            )
+            output = proc.stdout + "\n" + proc.stderr
+            
+            # Parse results
+            passed = len(re.findall(r'PASSED|\.\.\.\.\.|\.+$', output))
+            failed = len(re.findall(r'FAILED', output))
+            errors = len(re.findall(r'ERRORS?', output))
+            
+            # Extract summary
+            summary = ""
+            for line in output.split("\n"):
+                if "passed" in line.lower() and "failed" in line.lower():
+                    summary = line.strip()
+                    break
+                if "failed" in line.lower() and "=" in line:
+                    summary = line.strip()
+            
+            if proc.returncode == 0:
+                results.append(f"\n✅ ALL TESTS PASSED ({summary})")
+            else:
+                results.append(f"\n❌ TESTS FAILED (exit {proc.returncode})")
+                if summary:
+                    results.append(f"   {summary}")
+                # Show first failures
+                fail_lines = [l.strip() for l in output.split("\n") if "FAILED" in l][:3]
+                for fl in fail_lines:
+                    results.append(f"   🔴 {fl}")
+            
+            # Show timing
+            timing = re.findall(r'(\d+\.\d+)s', output)
+            if timing:
+                results.append(f"   ⏱ {timing[-1]}s")
+            
+            break  # First runner that works
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            results.append("\n⚠️ Tests timed out (120s)")
+            break
+        except Exception as e:
+            results.append(f"\n⚠️ Test error: {e}")
+            break
+    else:
+        results.append("\n⚠️ No test runner found (pytest or unittest)")
+    
+    return "\n".join(results)
+
+
+def run_typelint_local(project_dir: str) -> str:
+    """Run type checker and linter."""
+    results = []
+    root = Path(project_dir)
+    py_files = list(root.rglob("*.py"))
+    py_files = [f for f in py_files if "node_modules" not in str(f) and ".git" not in str(f) and "__pycache__" not in str(f)]
+    
+    if not py_files:
+        return "📄 No Python files to check"
+    
+    results.append(f"📄 Python files: {len(py_files)}")
+    
+    # Type check with mypy
+    try:
+        proc = subprocess.run(
+            ["python3", "-m", "mypy", "--ignore-missing-imports", "--show-error-codes", "."],
+            capture_output=True, text=True, timeout=60, cwd=project_dir
+        )
+        if proc.returncode == 0:
+            results.append("\n✅ mypy: No type errors")
+        else:
+            errors = len(re.findall(r'^.*error:', proc.stdout, re.MULTILINE))
+            results.append(f"\n⚠️ mypy: {errors} type error(s)")
+            # Show first 3 errors
+            error_lines = [l.strip() for l in proc.stdout.split("\n") if "error:" in l][:3]
+            for el in error_lines:
+                results.append(f"   📍 {el[:120]}")
+    except FileNotFoundError:
+        results.append("\n📋 mypy: not installed (pip install mypy)")
+    except subprocess.TimeoutExpired:
+        results.append("\n⚠️ mypy timed out")
+    
+    # Lint with pylint
+    try:
+        proc = subprocess.run(
+            ["python3", "-m", "pylint", "--score=n", "--fail-under=8", "."],
+            capture_output=True, text=True, timeout=60, cwd=project_dir
+        )
+        lint_errors = len(re.findall(r'^.*error:', proc.stdout, re.MULTILINE))
+        lint_warnings = len(re.findall(r'^.*warning:', proc.stdout, re.MULTILINE))
+        lint_conventions = len(re.findall(r'^.*convention:', proc.stdout, re.MULTILINE))
+        
+        if lint_errors == 0 and lint_warnings == 0:
+            results.append("✅ pylint: Clean (no errors or warnings)")
+        else:
+            results.append(f"\n⚠️ pylint: {lint_errors} errors, {lint_warnings} warnings, {lint_conventions} conventions")
+            # Show first 3 errors
+            error_lines = [l.strip() for l in proc.stdout.split("\n") if "error:" in l][:3]
+            for el in error_lines:
+                results.append(f"   📍 {el[:120]}")
+    except FileNotFoundError:
+        results.append("📋 pylint: not installed (pip install pylint)")
+    except subprocess.TimeoutExpired:
+        results.append("⚠️ pylint timed out")
+    
+    # Quick syntax check
+    syntax_errors = []
+    for f in py_files[:100]:
+        try:
+            compile(f.read_text(), str(f), 'exec')
+        except SyntaxError as e:
+            syntax_errors.append(f"{f.relative_to(project_dir)}:{e.lineno}: {e.msg}")
+    
+    if syntax_errors:
+        results.append(f"\n🔴 Syntax errors: {len(syntax_errors)}")
+        for se in syntax_errors[:3]:
+            results.append(f"   {se}")
+    else:
+        results.append("✅ Syntax: All files compile")
+    
+    return "\n".join(results)
+
+
+def get_requirements_context(project_dir: str, plan_path: Optional[str] = None) -> str:
+    """Get requirements/plan context and uncommitted changes."""
+    parts = []
+    root = Path(project_dir)
+    
+    # Read plan if specified
+    if plan_path and os.path.exists(plan_path):
+        try:
+            plan_text = Path(plan_path).read_text()
+            parts.append(f"PLAN/REQUIREMENTS ({plan_path}):\n{plan_text[:3000]}")
+        except:
+            parts.append(f"⚠️ Could not read plan: {plan_path}")
+    
+    # Check git diff
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--stat"],
+            capture_output=True, text=True, timeout=5, cwd=project_dir
+        )
+        if proc.stdout.strip():
+            parts.append(f"\nUNCOMMITTED CHANGES:\n{proc.stdout.strip()}")
+        
+        proc2 = subprocess.run(
+            ["git", "diff"],
+            capture_output=True, text=True, timeout=5, cwd=project_dir
+        )
+        diff = proc2.stdout[:5000]  # First 5000 chars
+        if diff.strip():
+            parts.append(f"\nDIFF (first 5000 chars):\n{diff}")
+    except:
+        pass
+    
+    # List recently modified files
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only"],
+            capture_output=True, text=True, timeout=5, cwd=project_dir
+        )
+        if proc.stdout.strip():
+            files = proc.stdout.strip().split("\n")
+            parts.append(f"\nMODIFIED FILES ({len(files)}):")
+            for f in files[:15]:
+                parts.append(f"  {f}")
+    except:
+        pass
+    
+    return "\n".join(parts) if parts else "No requirements context available."
+
+
+# ─── AI Provider Call ────────────────────────────────────────────
+
+async def call_provider(name: str, prompt: str, context: str,
+                        timeout: int = 60) -> Optional[str]:
+    """Call an AI verification agent."""
+    import urllib.request
+    
+    cfg = VERIFY_PROVIDERS.get(name)
+    if not cfg:
+        return f"[ERROR: Unknown provider '{name}']"
+    
+    key = os.environ.get(cfg["env_key"])
+    if not key:
+        return f"[ERROR: Missing API key {cfg['env_key']}]"
+    
+    full_prompt = f"{prompt}\n\n{context[:4000]}"
+    
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": "You are a verification agent. Be thorough, specific, and evidence-based. Every claim must be backed by specific evidence from the data provided."},
+            {"role": "user", "content": full_prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 2048,
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "ZES-Verify-Engine/1.0",
+    }
+    
+    if "openrouter" in name or "openrouter" in cfg.get("url", ""):
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Verification Engine"
+    
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(cfg["url"], data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp_data = json.loads(resp.read().decode())
+            content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content or "[No content returned]"
+    except Exception as e:
+        return f"[ERROR: {name} failed — {e}]"
+
+
+# ─── Main Verification Logic ─────────────────────────────────────
+
+async def run_verification(project_dir: str, plan_path: Optional[str] = None,
+                           ci_mode: bool = False, quick: bool = False,
+                           verbose: bool = False):
+    """Run 3-agent verification pipeline."""
+    start = datetime.now()
+    
+    print(f"\n{'='*60}")
+    print(f"  ✅ ZES 3-Agent Verification Before Completion")
+    print(f"{'='*60}")
+    print(f"  Target: {project_dir}")
+    if plan_path:
+        print(f"  Plan:   {plan_path}")
+    print(f"  Time:   {start.strftime('%H:%M:%S')}")
+    print(f"{'='*60}\n")
+    
+    # ─── Phase 0: Local Checks ─────────────────────────────────
+    print(f"  📋 Running local verification...")
+    
+    test_local = run_tests_local(project_dir)
+    typelint_local = run_typelint_local(project_dir)
+    requirements_context = get_requirements_context(project_dir, plan_path)
+    
+    test_status = "passed" if "✅ ALL TESTS PASSED" in test_local else "issues"
+    typelint_status = "clean" if "No type errors" in typelint_local and "Clean" in typelint_local else "issues"
+    print(f"  ✅ Tests: {test_status}")
+    print(f"  ✅ Type/Lint: {typelint_status}")
+    print(f"  ✅ Requirements context: {'loaded' if requirements_context else 'none'}")
+    
+    if quick:
+        print(f"\n  ⚡ Quick mode — skipping AI agents")
+        print(f"\n{'='*60}")
+        print(f"  LOCAL VERIFICATION REPORT ({datetime.now().strftime('%H:%M:%S')})")
+        print(f"{'='*60}\n")
+        print(f"  ┌{'─'*56}┐")
+        print(f"  │ 🧪 TEST RESULTS                                       │")
+        print(f"  └{'─'*56}┘")
+        print(f"\n{textwrap.indent(test_local, '  ')}")
+        print(f"\n  ┌{'─'*56}┐")
+        print(f"  │ 📋 TYPE/LINT RESULTS                                  │")
+        print(f"  └{'─'*56}┘")
+        print(f"\n{textwrap.indent(typelint_local, '  ')}")
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"\n{'='*60}")
+        print(f"  ⏱ {elapsed:.0f}s | Local checks only")
+        print(f"{'='*60}\n")
+        return
+    
+    # ─── Phase 1: 3 AI Agents ──────────────────────────────────
+    print(f"\n  🚀 Launching 3 AI verification agents...\n")
+    
+    agent_start = datetime.now()
+    tasks = {
+        "tester": call_provider("tester", TESTER_PROMPT, 
+            f"Test Results:\n{test_local}\n\nProject: {project_dir}"),
+        "typecheck": call_provider("typecheck", TYPECHECK_PROMPT,
+            f"Type/Lint Results:\n{typelint_local}\n\nProject: {project_dir}"),
+        "requirements": call_provider("requirements", REQUIREMENTS_PROMPT,
+            f"Requirements Context:\n{requirements_context[:4000]}\n\nProject: {project_dir}"),
+    }
+    
+    results = await asyncio.gather(*[tasks[k] for k in ["tester", "typecheck", "requirements"]])
+    agent_elapsed = (datetime.now() - agent_start).total_seconds()
+    
+    tester_result, typecheck_result, requirements_result = results
+    
+    # ─── Phase 2: Synthesis ────────────────────────────────────
+    synthesis_prompt = f"""You are the **Verification Synthesizer**. Based on all 3 agent reports below, make a final determination.
+
+TEST VERIFIER REPORT:
+{tester_result[:2000]}
+
+TYPE/LINT CHECKER REPORT:
+{typecheck_result[:2000]}
+
+REQUIREMENTS CHECKER REPORT:
+{requirements_result[:2000]}
+
+LOCAL TOOL RESULTS:
+Test: {test_local[:1000]}
+Type/Lint: {typelint_local[:1000]}
+
+Make a final determination:
+- ✅ VERIFIED: All checks pass — safe to claim completion
+- ❌ FAILED: Critical issues remain — DO NOT claim completion
+- ⚠️ INCOMPLETE: Some checks pass, but gaps remain
+
+Output:
+- VERDICT: VERIFIED | FAILED | INCOMPLETE
+- EVIDENCE: What was actually verified (be specific)
+- REMAINING: What still needs to be done before claiming completion
+- RULE_CHECK: "Evidence before claims — have we verified everything?"
+- SUMMARY: One-line verdict stating actual verified state"""
+    
+    synthesis_result = await call_provider("tester", synthesis_prompt, "")
+    synthesis_result = synthesis_result or "[No synthesis available]"
+    
+    total_elapsed = (datetime.now() - start).total_seconds()
+    
+    # ─── Output ────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  📋 VERIFICATION REPORT ({total_elapsed:.0f}s)")
+    print(f"{'='*60}\n")
+    
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🧪 TEST VERIFIER                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(tester_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 📋 TYPE/LINT CHECKER                                  │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(typecheck_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 📋 REQUIREMENTS CHECKER                                │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(requirements_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🏛️  FINAL VERDICT                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(synthesis_result.strip(), '  ')}")
+    
+    print(f"\n{'='*60}")
+    print(f"  ⏱ {total_elapsed:.0f}s | AI: {agent_elapsed:.0f}s | Local: {total_elapsed - agent_elapsed:.0f}s")
+    print(f"  🔑 IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH EVIDENCE")
+    print(f"{'='*60}\n")
+    
+    # CI mode: exit 1 on FAILED
+    if ci_mode and "FAILED" in synthesis_result.upper() and "VERIFIED" not in synthesis_result.upper():
+        sys.exit(1)
+
+
+# ─── CLI ──────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ZES 3-Agent Verification Before Completion — Test + Type/Lint + Requirements in parallel",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes verify                              # Verify current project
+              zes verify --dir ~/project               # Specific project
+              zes verify --plan docs/plan.md           # Verify against plan
+              zes verify --quick                        # Local checks only
+              zes verify --ci                           # Exit 1 on failure
+        """),
+    )
+    parser.add_argument("--dir", "-d", default=os.getcwd(), help="Project directory")
+    parser.add_argument("--plan", "-p", help="Plan/requirements file to verify against")
+    parser.add_argument("--quick", "-q", action="store_true", help="Local checks only, skip AI")
+    parser.add_argument("--ci", action="store_true", help="CI mode — exit 1 on failure")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    if not os.path.isdir(args.dir):
+        print(f"ERROR: Directory not found: {args.dir}")
+        sys.exit(1)
+    
+    if args.plan and not os.path.exists(args.plan):
+        print(f"⚠️  Plan file not found: {args.plan}")
+        args.plan = None
+    
+    asyncio.run(run_verification(args.dir, args.plan, args.ci, args.quick, args.verbose))
+
+
+if __name__ == "__main__":
+    main()
