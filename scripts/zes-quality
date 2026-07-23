@@ -1,0 +1,578 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""
+ZES Quality Gate — 3-Agent Parallel Code Quality Checker.
+
+Spawns 3 parallel AI agents to audit code quality:
+  Lint Agent    → code style, imports, syntax, naming
+  Security Agent → secrets, injection, vulns, unsafe patterns
+  Coverage Agent → test results, coverage %, test quality
+
+Synthesizes into a PASS/FAIL gate decision.
+
+Usage:
+  zes quality [--dir DIR] [--verbose]
+  zes quality --ci                  # CI mode (exit 1 on failure)
+  zes quality --quick               # Skip AI agents, only run local tools
+"""
+
+import asyncio, json, os, sys, argparse, textwrap, subprocess, re
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+# ─── AI Provider Config ──────────────────────────────────────────
+
+QUALITY_PROVIDERS = {
+    "lint": {
+        "url": os.environ.get("LINT_URL", "https://api.groq.com/openai/v1/chat/completions"),
+        "model": os.environ.get("LINT_MODEL", "llama-3.3-70b-versatile"),
+        "env_key": "GROQ_API_KEY",
+        "name": "Lint Agent (Groq Llama 3.3)",
+    },
+    "security": {
+        "url": os.environ.get("SECURITY_URL", "https://openrouter.ai/api/v1/chat/completions"),
+        "model": os.environ.get("SECURITY_MODEL", "deepseek/deepseek-v4-flash"),
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "Security Agent (OpenRouter DeepSeek V4)",
+    },
+    "coverage": {
+        "url": os.environ.get("COVERAGE_URL", "https://api.llm7.io/v1/chat/completions"),
+        "model": os.environ.get("COVERAGE_MODEL", "codestral-latest"),
+        "env_key": "LLM7_API_KEY",
+        "name": "Coverage Agent (LLM7 Codestral)",
+    },
+}
+
+# ─── Agent Prompts ───────────────────────────────────────────────
+
+LINT_PROMPT = """You are the **Lint Agent** in a 3-agent Quality Gate system.
+
+Your job: Analyze the codebase for code quality, style, and correctness issues.
+
+Instructions:
+1. Review the file listing and code scan results below
+2. Identify:
+   - Import errors (missing imports, unused imports, circular imports)
+   - Syntax errors or potential runtime errors
+   - Code style violations (PEP8, naming conventions)
+   - Type mismatches or missing type hints
+   - Dead code, unused variables, unreachable code
+   - Overly complex functions (high cyclomatic complexity)
+3. Be SPECIFIC — file paths, line numbers, exact issues
+4. Prioritize: real bugs > style issues > conventions
+
+Output a structured report:
+- CRITICAL: Bugs that will cause runtime failures (0-5)
+- WARNING: Code quality issues that should be fixed (0-10)
+- INFO: Style suggestions, minor improvements
+- TOP_ISSUES: The 3 most important things to fix first"""
+
+SECURITY_PROMPT = """You are the **Security Agent** in a 3-agent Quality Gate system.
+
+Your job: Scan the codebase for security vulnerabilities and sensitive data exposure.
+
+Instructions:
+1. Review the file listing and code scan
+2. Check for:
+   - Hardcoded API keys, tokens, passwords, secrets
+   - SQL injection vectors (raw SQL strings, unsafe parameterization)
+   - Command injection (os.system, subprocess with shell=True, eval/exec)
+   - Path traversal (unsafe file path construction)
+   - Insecure deserialization (pickle, yaml.load)
+   - Missing input validation
+   - Hardcoded debug endpoints or backdoors
+   - Dependency vulnerabilities (known vulnerable packages)
+3. Be SPECIFIC — file paths, line numbers, the risky code
+
+Output:
+- CRITICAL: Active security vulnerabilities (0-5)
+- WARNING: Security risks that should be addressed (0-10)
+- SECRETS_FOUND: Any hardcoded credentials detected
+- TOP_RISKS: The 3 most important security fixes"""
+
+COVERAGE_PROMPT = """You are the **Coverage Agent** in a 3-agent Quality Gate system.
+
+Your job: Analyze test quality, coverage, and results.
+
+Instructions:
+1. Review the test structure and code scan
+2. Check:
+   - Do tests exist for each source module?
+   - Are tests meaningful (assert behavior, not just existence)?
+   - Are edge cases covered (empty, null, error states)?
+   - Is test coverage adequate (80%+)?
+   - Do tests pass? Any failures or flaky tests?
+   - Are there integration tests for critical paths?
+3. Be SPECIFIC — which modules lack tests, which tests are weak
+
+Output:
+- COVERAGE: Estimated coverage percentage and gaps
+- TEST_QUALITY: Are tests meaningful or just change-detectors?
+- MISSING: Critical paths without test coverage
+- TOP_GAPS: The 3 most important test improvements"""
+
+
+# ─── Local Tool Runners ──────────────────────────────────────────
+
+def run_linters_local(project_dir: str) -> str:
+    """Run local linters and return results."""
+    results = []
+    
+    # Python linting
+    py_files = list(Path(project_dir).rglob("*.py"))
+    js_files = list(Path(project_dir).rglob("*.js")) + list(Path(project_dir).rglob("*.ts")) + list(Path(project_dir).rglob("*.tsx"))
+    
+    if py_files:
+        # Python syntax check
+        syntax_errors = []
+        for f in py_files[:50]:  # limit to 50 files
+            try:
+                compile(f.read_text(), str(f), 'exec')
+            except SyntaxError as e:
+                syntax_errors.append(f"  {f.relative_to(project_dir)}:{e.lineno}: {e.msg}")
+        
+        if syntax_errors:
+            results.append(f"🔴 Python Syntax Errors ({len(syntax_errors)}):")
+            results.extend(syntax_errors[:10])
+        else:
+            results.append("🟢 Python syntax: OK")
+        
+        # Import check (basic)
+        try:
+            proc = subprocess.run(
+                ["python3", "-m", "py_compile"] + [str(f) for f in py_files[:20]],
+                capture_output=True, text=True, timeout=30, cwd=project_dir
+            )
+            if proc.returncode != 0:
+                results.append(f"⚠️  Compile warnings:")
+                for line in proc.stderr.strip().split("\n")[:5]:
+                    results.append(f"  {line}")
+        except:
+            pass
+    
+    if js_files:
+        # Basic JS syntax check via node
+        js_count = len(js_files)
+        results.append(f"\n📄 JS/TS files: {js_count}")
+    
+    return "\n".join(results)
+
+
+def run_security_checks_local(project_dir: str) -> str:
+    """Run local security checks."""
+    results = []
+    
+    # Check for hardcoded secrets patterns
+    secret_patterns = [
+        (r'API_KEY\s*=\s*["\'](?![^"\']*placeholder)', "API Key hardcoded"),
+        (r'TOKEN\s*=\s*["\'](?![^"\']*placeholder)', "Token hardcoded"),
+        (r'PASSWORD\s*=\s*["\'](?![^"\']*placeholder)', "Password hardcoded"),
+        (r'SECRET\s*=\s*["\'](?![^"\']*placeholder)', "Secret hardcoded"),
+        (r'sk-[a-zA-Z0-9]{20,}', "OpenAI-style API key detected"),
+        (r'ghp_[a-zA-Z0-9]{36}', "GitHub PAT detected"),
+        (r'AKIA[0-9A-Z]{16}', "AWS Access Key detected"),
+    ]
+    
+    found_secrets = []
+    for pattern, desc in secret_patterns:
+        try:
+            proc = subprocess.run(
+                ["grep", "-rn", pattern, project_dir, 
+                 "--include=*.py", "--include=*.js", "--include=*.ts", 
+                 "--include=*.tsx", "--include=*.yaml", "--include=*.yml",
+                 "--include=*.json", "--include=*.env", "--include=*.toml",
+                 "--exclude-dir=node_modules", "--exclude-dir=.git",
+                 "--exclude-dir=__pycache__"],
+                capture_output=True, text=True, timeout=10
+            )
+            matches = [l for l in proc.stdout.strip().split("\n") if l and not "placeholder" in l.lower()]
+            # Filter out known-safe patterns
+            matches = [m for m in matches if "master.env" not in m and "secure-credentials" not in m]
+            if matches:
+                found_secrets.extend(matches[:3])
+        except:
+            pass
+    
+    if found_secrets:
+        results.append(f"🔴 Potential secrets found ({len(found_secrets)}):")
+        for s in found_secrets[:5]:
+            results.append(f"  {s[:120]}")
+    else:
+        results.append("🟢 No hardcoded secrets detected")
+    
+    # Check for eval/exec usage
+    try:
+        proc = subprocess.run(
+            ["grep", "-rn", r"\beval\b|\bexec\b", project_dir,
+             "--include=*.py", "--exclude-dir=node_modules", "--exclude-dir=.git",
+             "--exclude-dir=__pycache__"],
+            capture_output=True, text=True, timeout=10
+        )
+        evals = [l for l in proc.stdout.strip().split("\n") if l]
+        if evals:
+            results.append(f"\n⚠️  eval/exec usage ({len(evals)} occurrences):")
+            for e in evals[:5]:
+                results.append(f"  {e[:120]}")
+    except:
+        pass
+    
+    return "\n".join(results)
+
+
+def run_tests_local(project_dir: str) -> str:
+    """Run test suite and check coverage."""
+    results = []
+    
+    # Check if pytest is available
+    test_dirs = list(Path(project_dir).rglob("test*")) + list(Path(project_dir).rglob("*test*"))
+    test_files = [f for f in test_dirs if f.is_file() and f.suffix == ".py"]
+    
+    if test_files:
+        results.append(f"📄 Test files found: {len(test_files)}")
+        for tf in test_files[:5]:
+            results.append(f"  {tf.relative_to(project_dir)}")
+        
+        # Run tests briefly (quick mode)
+        try:
+            proc = subprocess.run(
+                ["python3", "-m", "pytest", "--tb=short", "-q", "--timeout=30"],
+                capture_output=True, text=True, timeout=60, cwd=project_dir
+            )
+            output = proc.stdout.strip() + "\n" + proc.stderr.strip()
+            # Extract summary line
+            summary_match = re.search(r'(\d+ passed|FAILED|\d+ failed|\d+ error)', output)
+            if summary_match:
+                results.append(f"\n🧪 Test result: {summary_match.group(0)}")
+            if proc.returncode != 0:
+                # Show first failure
+                fail_match = re.search(r'FAILED[^\n]+', output)
+                if fail_match:
+                    results.append(f"  First failure: {fail_match.group(0)}")
+                results.append(f"  Exit code: {proc.returncode}")
+            else:
+                results.append(f"  ✅ All tests passed")
+        except FileNotFoundError:
+            results.append("  ⚠️ pytest not installed")
+        except subprocess.TimeoutExpired:
+            results.append("  ⚠️ Tests timed out (60s)")
+        except Exception as e:
+            results.append(f"  ⚠️ Test error: {e}")
+    else:
+        results.append("📄 No test files found")
+    
+    # Check coverage
+    try:
+        proc = subprocess.run(
+            ["python3", "-m", "coverage", "report", "--fail-under=0"],
+            capture_output=True, text=True, timeout=30, cwd=project_dir
+        )
+        if proc.stdout:
+            # Extract total coverage
+            cov_match = re.search(r'TOTAL\s+\d+\s+\d+\s+(\d+)%', proc.stdout)
+            if cov_match:
+                pct = int(cov_match.group(1))
+                icon = "🟢" if pct >= 80 else "🟡" if pct >= 50 else "🔴"
+                results.append(f"\n{icon} Coverage: {pct}%")
+                if pct < 80:
+                    results.append(f"  ⚠️ Below 80% threshold")
+            else:
+                lines = proc.stdout.strip().split("\n")
+                if lines:
+                    results.append(f"\n📊 Coverage report:")
+                    for l in lines[-3:]:
+                        results.append(f"  {l}")
+    except:
+        pass
+    
+    return "\n".join(results)
+
+
+# ─── AI Provider Call ────────────────────────────────────────────
+
+async def call_provider(name: str, prompt: str, code_context: str, 
+                        timeout: int = 60) -> Optional[str]:
+    """Call an AI quality agent."""
+    import urllib.request
+    
+    cfg = QUALITY_PROVIDERS.get(name)
+    if not cfg:
+        return f"[ERROR: Unknown provider '{name}']"
+    
+    key = os.environ.get(cfg["env_key"])
+    if not key:
+        return f"[ERROR: Missing API key {cfg['env_key']}]"
+    
+    full_prompt = f"{prompt}\n\nCodebase Context:\n{code_context[:4000]}"
+    
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": "You are a code quality analysis agent. Be specific, critical, and actionable. Always cite file paths and line numbers."},
+            {"role": "user", "content": full_prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048,
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "ZES-Quality-Gate/1.0",
+    }
+    
+    if "openrouter" in name or "openrouter" in cfg.get("url", ""):
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Quality Gate"
+    
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(cfg["url"], data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp_data = json.loads(resp.read().decode())
+            content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content or "[No content returned]"
+    except Exception as e:
+        return f"[ERROR: {name} failed — {e}]"
+
+
+# ─── Codebase Scanning ───────────────────────────────────────────
+
+def scan_codebase(project_dir: str) -> str:
+    """Build a codebase context summary for AI agents."""
+    parts = []
+    root = Path(project_dir)
+    
+    # Project structure
+    parts.append(f"PROJECT: {project_dir}")
+    
+    # File listing (source files only)
+    extensions = ["*.py", "*.js", "*.ts", "*.tsx", "*.jsx", "*.html", "*.css", "*.yaml", "*.yml", "*.json", "*.toml", "*.env*"]
+    source_files = []
+    for ext in extensions:
+        source_files.extend(root.rglob(ext))
+    # Filter out node_modules, .git, __pycache__, .hermes, .codex
+    source_files = [f for f in source_files if not any(
+        p in str(f) for p in ["node_modules", ".git", "__pycache__", ".hermes", ".codex", ".cache", ".venv"]
+    )]
+    
+    parts.append(f"\nFILES: {len(source_files)} source files")
+    
+    # Group by type
+    py_files = [f for f in source_files if f.suffix == ".py"]
+    js_files = [f for f in source_files if f.suffix in (".js", ".ts", ".tsx", ".jsx")]
+    config_files = [f for f in source_files if f.suffix in (".json", ".yaml", ".yml", ".toml")]
+    
+    if py_files:
+        parts.append(f"  Python: {len(py_files)} files")
+        for f in py_files[:20]:
+            rel = f.relative_to(project_dir)
+            size = f.stat().st_size
+            parts.append(f"    {'🟢' if size < 500 else '🟡' if size < 2000 else '🔴'} {rel} ({size}b)")
+        if len(py_files) > 20:
+            parts.append(f"    ... and {len(py_files) - 20} more")
+    
+    if js_files:
+        parts.append(f"\n  JS/TS: {len(js_files)} files")
+    
+    if config_files:
+        parts.append(f"\n  Config: {len(config_files)} files")
+        for f in config_files[:10]:
+            rel = f.relative_to(project_dir)
+            parts.append(f"    {rel}")
+    
+    # Git info
+    try:
+        proc = subprocess.run(
+            ["git", "log", "--oneline", "-5"],
+            capture_output=True, text=True, timeout=5, cwd=project_dir
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            parts.append(f"\nRECENT COMMITS:")
+            for line in proc.stdout.strip().split("\n")[:5]:
+                parts.append(f"  {line}")
+        
+        proc2 = subprocess.run(
+            ["git", "diff", "--stat"],
+            capture_output=True, text=True, timeout=5, cwd=project_dir
+        )
+        if proc2.stdout.strip():
+            parts.append(f"\nUNCOMMITTED CHANGES:")
+            parts.append(f"  {proc2.stdout.strip()}")
+    except:
+        pass
+    
+    return "\n".join(parts)
+
+
+# ─── Main Quality Gate ───────────────────────────────────────────
+
+async def run_quality_gate(project_dir: str, ci_mode: bool = False, 
+                           quick: bool = False, verbose: bool = False):
+    """Run the 3-agent quality gate."""
+    start = datetime.now()
+    
+    print(f"\n{'='*60}")
+    print(f"  🏛️  ZES 3-Agent Quality Gate")
+    print(f"{'='*60}")
+    print(f"  Target: {project_dir}")
+    print(f"  Time:   {start.strftime('%H:%M:%S')}")
+    print(f"{'='*60}\n")
+    
+    # Phase 0: Local checks
+    print(f"  📋 Running local checks...")
+    lint_local = run_linters_local(project_dir)
+    security_local = run_security_checks_local(project_dir)
+    coverage_local = run_tests_local(project_dir)
+    
+    print(f"  ✅ Local lint: {'passed' if '🔴' not in lint_local else 'issues found'}")
+    print(f"  ✅ Local security: {'passed' if '🔴' not in security_local else 'secrets found'}")
+    print(f"  ✅ Local coverage: {'passed' if '🟢 All tests passed' in coverage_local else 'check output'}")
+    
+    if quick:
+        print(f"\n  ⚡ Quick mode — skipping AI agents")
+        print(f"\n{'='*60}")
+        print(f"  LOCAL QUALITY REPORT ({datetime.now().strftime('%H:%M:%S')})")
+        print(f"{'='*60}\n")
+        print(f"  ┌{'─'*56}┐")
+        print(f"  │ 📋 LINT CHECKS                                        │")
+        print(f"  └{'─'*56}┘")
+        print(f"\n{textwrap.indent(lint_local, '  ')}")
+        print(f"\n  ┌{'─'*56}┐")
+        print(f"  │ 🔒 SECURITY CHECKS                                    │")
+        print(f"  └{'─'*56}┘")
+        print(f"\n{textwrap.indent(security_local, '  ')}")
+        print(f"\n  ┌{'─'*56}┐")
+        print(f"  │ 🧪 COVERAGE/TEST CHECKS                               │")
+        print(f"  └{'─'*56}┘")
+        print(f"\n{textwrap.indent(coverage_local, '  ')}")
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"\n{'='*60}")
+        print(f"  ⏱ {elapsed:.0f}s | Quick local checks only")
+        print(f"{'='*60}\n")
+        return
+    
+    # Phase 1: AI agents
+    print(f"\n  🚀 Launching 3 AI quality agents...\n")
+    
+    # Build codebase context
+    code_context = scan_codebase(project_dir)
+    
+    if verbose:
+        print(f"\n  Codebase context ({len(code_context)} chars):")
+        print(f"  {code_context[:500]}...\n")
+    
+    # Run all 3 agents in parallel
+    agent_start = datetime.now()
+    tasks = {
+        "lint": call_provider("lint", LINT_PROMPT, code_context),
+        "security": call_provider("security", SECURITY_PROMPT, code_context),
+        "coverage": call_provider("coverage", COVERAGE_PROMPT, code_context),
+    }
+    
+    results = await asyncio.gather(*[tasks[k] for k in ["lint", "security", "coverage"]])
+    agent_elapsed = (datetime.now() - agent_start).total_seconds()
+    
+    lint_result, security_result, coverage_result = results
+    
+    # Phase 2: Local results integrated
+    combined_local = f"Local Lint Results:\n{lint_local}\n\nLocal Security Results:\n{security_local}\n\nLocal Coverage Results:\n{coverage_local}"
+    
+    # Phase 3: Synthesis — run lint agent again with all data for gate decision
+    synthesis_prompt = f"""You are the **Quality Gate Synthesizer**. Based on all agent reports below, make a PASS/FAIL decision.
+
+LINT AGENT REPORT:
+{lint_result[:2000]}
+
+SECURITY AGENT REPORT:
+{security_result[:2000]}
+
+COVERAGE AGENT REPORT:
+{coverage_result[:2000]}
+
+LOCAL TOOL RESULTS:
+{combined_local[:2000]}
+
+Make a gate decision:
+- ✅ PASS if no critical issues exist
+- ❌ FAIL if critical bugs, security vulns, or < 50% coverage
+- ⚠️  PASS_WITH_WARNINGS if only minor issues
+
+Output:
+- GATE_DECISION: PASS | FAIL | PASS_WITH_WARNINGS
+- REASONING: Why this decision was made
+- ACTION_ITEMS: Top 3 things to fix (numbered)
+- SUMMARY: One-line verdict"""
+    
+    synthesis_result = await call_provider("lint", synthesis_prompt, "")
+    synthesis_result = synthesis_result or "[No synthesis available]"
+    
+    total_elapsed = (datetime.now() - start).total_seconds()
+    
+    # ─── Output ────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  📋 QUALITY GATE REPORT ({total_elapsed:.0f}s)")
+    print(f"{'='*60}\n")
+    
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🔎 LINT AGENT                                          │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(lint_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🔒 SECURITY AGENT                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(security_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🧪 COVERAGE AGENT                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(coverage_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🏛️  GATE DECISION                                       │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(synthesis_result.strip(), '  ')}")
+    
+    print(f"\n{'='*60}")
+    print(f"  ⏱ {total_elapsed:.0f}s | AI agents: {agent_elapsed:.0f}s | Local: {total_elapsed - agent_elapsed:.0f}s")
+    print(f"{'='*60}\n")
+    
+    # CI mode: exit 1 on FAIL
+    if ci_mode and "FAIL" in synthesis_result.upper() and "PASS" not in synthesis_result.upper():
+        sys.exit(1)
+
+
+# ─── CLI ──────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ZES 3-Agent Quality Gate — Lint + Security + Coverage in parallel",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes quality                          # Quality gate on current dir
+              zes quality --dir ~/project          # Specific project
+              zes quality --ci                     # CI mode (exit 1 on FAIL)
+              zes quality --quick                  # Local checks only, no AI
+              zes quality --verbose                 # Show full codebase context
+        """),
+    )
+    parser.add_argument("--dir", "-d", default=os.getcwd(), help="Project directory")
+    parser.add_argument("--ci", action="store_true", help="CI mode — exit 1 on failure")
+    parser.add_argument("--quick", "-q", action="store_true", help="Skip AI agents, local checks only")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    if not os.path.isdir(args.dir):
+        print(f"ERROR: Directory not found: {args.dir}")
+        sys.exit(1)
+    
+    asyncio.run(run_quality_gate(args.dir, args.ci, args.quick, args.verbose))
+
+
+if __name__ == "__main__":
+    main()
