@@ -70,6 +70,13 @@ DIRECT_PROVIDERS = {
         "env_key": "LLM7_API_KEY",
         "name": "LLM7 (Codestral)",
     },
+    "opencode_key": {
+        "url": "https://opencode.ai/zen/v1/chat/completions",
+        "model": "mimo-v2.5-free",
+        "env_key": "OPENCODE_ZEN_KEY",
+        "name": "OpenCode Zen (MiMo-V2.5)",
+        "auth_header": "X-API-Key",
+    },
     # Cerebras: 1800+ tok/s inference. Sign up at https://inference.cerebras.ai/
     # Add CEREBRAS_API_KEY to master.env and uncomment:
     #"cerebras_key": {
@@ -144,7 +151,11 @@ async def call_provider(session: aiohttp.ClientSession, provider: str,
         key = os.environ.get(cfg["env_key"])
         if not key:
             return f"[ERROR: Missing API key {cfg['env_key']}]"
-        headers["Authorization"] = f"Bearer {key}"
+        auth_header = cfg.get("auth_header", "Authorization")
+        if auth_header == "Authorization":
+            headers["Authorization"] = f"Bearer {key}"
+        else:
+            headers[auth_header] = key
 
     # OpenRouter needs extra headers
     if "openrouter" in provider:
@@ -252,7 +263,11 @@ async def check_providers() -> list[str]:
                     key = os.environ.get(cfg["env_key"])
                     if not key:
                         continue
-                    headers["Authorization"] = f"Bearer {key}"
+                    auth_header = cfg.get("auth_header", "Authorization")
+                    if auth_header == "Authorization":
+                        headers["Authorization"] = f"Bearer {key}"
+                    else:
+                        headers[auth_header] = key
                 # Quick ping with minimal tokens
                 payload = {
                     "model": cfg["model"],

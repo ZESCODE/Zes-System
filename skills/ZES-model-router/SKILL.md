@@ -29,6 +29,8 @@ metadata:
 | **Long documents** | OpenRouter | DeepSeek V4 Flash | 128K native context |
 | **Code generation** | LLM7 | Codestral Latest | 1M tokens/day free, dedicated code model |
 | **Lightweight tasks** | LLM7 | MiniMax M2.7 | Fast, cheap, good for classification |
+| **Reasoning/Planning** | OpenCode Zen | MiMo-V2.5 Free | Reasoning model, free tier, think before answering |
+| **Free deep research** | OpenCode Zen | DeepSeek V4 Flash Free | Free DeepSeek V4 Flash, great for research |
 | **Ultra-fast inference** | Cerebras * | Llama 3.3 70B | 1,800+ tok/s — sign up at inference.cerebras.ai |
 
 *Requires CEREBRAS_API_KEY in master.env

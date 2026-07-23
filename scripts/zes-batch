@@ -68,6 +68,13 @@ DIRECT_PROVIDERS = {
         "env_key": "LLM7_API_KEY",
         "name": "LLM7 (Codestral)",
     },
+    "opencode": {
+        "url": "https://opencode.ai/zen/v1/chat/completions",
+        "model": "mimo-v2.5-free",
+        "env_key": "OPENCODE_ZEN_KEY",
+        "name": "OpenCode Zen (MiMo-V2.5)",
+        "auth_header": "X-API-Key",
+    },
     # Cerebras: 1800+ tok/s inference. Sign up at https://inference.cerebras.ai/
     # Add CEREBRAS_API_KEY to master.env and uncomment:
     #"cerebras": {
@@ -123,7 +130,11 @@ async def call_provider(session, provider, task, task_id, timeout=30):
         key = os.environ.get(cfg["env_key"])
         if not key:
             return task_id, provider, f"[MISSING KEY]", 0, "ERROR"
-        headers["Authorization"] = f"Bearer {key}"
+        auth_header = cfg.get("auth_header", "Authorization")
+        if auth_header == "Authorization":
+            headers["Authorization"] = f"Bearer {key}"
+        else:
+            headers[auth_header] = key
 
     if "openrouter" in provider:
         headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
