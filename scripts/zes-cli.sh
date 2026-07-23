@@ -30,6 +30,10 @@ case "${1:-help}" in
     shift
     exec python3 "$HOME/.local/bin/zes-verify" "$@"
     ;;
+  brainstorm|bs)
+    shift
+    exec python3 "$HOME/.local/bin/zes-brainstorm" "$@"
+    ;;
   --check|-c|check)
     echo "=== Research Providers ==="
     python3 "$RESEARCH_ENGINE" --check
