@@ -27,6 +27,8 @@ metadata:
 | **Translation** | Mistral | Mistral Medium | Multi-lingual strength |
 | **Scientific** | NVIDIA | Llama 3.1 70B | Scientific corpus training |
 | **Long documents** | OpenRouter | DeepSeek V4 Flash | 128K native context |
+| **Code generation** | LLM7 | Codestral Latest | 1M tokens/day free, dedicated code model |
+| **Lightweight tasks** | LLM7 | MiniMax M2.7 | Fast, cheap, good for classification |
 | **Ultra-fast inference** | Cerebras * | Llama 3.3 70B | 1,800+ tok/s — sign up at inference.cerebras.ai |
 
 *Requires CEREBRAS_API_KEY in master.env
@@ -42,6 +44,7 @@ metadata:
 | **Mistral** | ⚡⚡⚡ | ⚡⚡⚡⚡ | 32K | 1 req/min | ✅ Yes |
 | **NVIDIA** | ⚡⚡ | ⚡⚡⚡ | 128K | 1000 req/day | ✅ Yes |
 | **GitHub Models** | ⚡⚡ | ⚡⚡⚡⚡⚡ | 128K | 1 req/min/model | ✅ Free w/ PAT |
+| **LLM7** | ⚡⚡⚡ | ⚡⚡⚡⚡ | 32K | 1M tok/day | ✅ Free tier |
 
 ## Routing Logic
 

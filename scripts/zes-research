@@ -64,6 +64,12 @@ DIRECT_PROVIDERS = {
         "env_key": "GITHUB_PAT_ARFAXDEV",
         "name": "GitHub Models (GPT-4.1)",
     },
+    "llm7_key": {
+        "url": "https://api.llm7.io/v1/chat/completions",
+        "model": "codestral-latest",
+        "env_key": "LLM7_API_KEY",
+        "name": "LLM7 (Codestral)",
+    },
     # Cerebras: 1800+ tok/s inference. Sign up at https://inference.cerebras.ai/
     # Add CEREBRAS_API_KEY to master.env and uncomment:
     #"cerebras_key": {
