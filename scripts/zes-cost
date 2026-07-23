@@ -1,0 +1,489 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""
+ZES Cost Tracker — 3-Agent Cost Analysis Engine.
+
+Spawns 3 parallel AI agents to track, optimize, and forecast API costs:
+  Usage Analyzer    → Token/cost estimates per provider, per command, trends
+  Cost Optimizer    → Routing optimization, provider comparison, savings
+  Budget Forecaster → Monthly projections, anomaly detection, alerts
+
+Usage:
+  zes cost                                # Full cost analysis
+  zes cost --report                       # Generate detailed report file
+  zes cost --quick                        # Quick cost summary
+  zes cost --alerts                       # Show active alerts
+"""
+
+import asyncio, json, os, sys, argparse, textwrap, subprocess, re
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+# ─── AI Provider Config ──────────────────────────────────────────
+
+COST_PROVIDERS = {
+    "usage": {
+        "url": os.environ.get("USAGE_URL", "https://api.groq.com/openai/v1/chat/completions"),
+        "model": os.environ.get("USAGE_MODEL", "llama-3.3-70b-versatile"),
+        "env_key": "GROQ_API_KEY",
+        "name": "Usage Analyzer (Groq Llama 3.3)",
+    },
+    "optimizer": {
+        "url": os.environ.get("OPTIMIZER_URL", "https://openrouter.ai/api/v1/chat/completions"),
+        "model": os.environ.get("OPTIMIZER_MODEL", "deepseek/deepseek-v4-flash"),
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "Cost Optimizer (OpenRouter DeepSeek V4)",
+    },
+    "forecaster": {
+        "url": os.environ.get("FORECAST_URL", "https://api.llm7.io/v1/chat/completions"),
+        "model": os.environ.get("FORECAST_MODEL", "codestral-latest"),
+        "env_key": "LLM7_API_KEY",
+        "name": "Budget Forecaster (LLM7 Codestral)",
+    },
+}
+
+# ─── Known Pricing (per million tokens) ─────────────────────────
+
+PRICING = {
+    "groq": {"input": 0.59, "output": 0.79, "name": "Groq", "free_tier": True},
+    "openrouter": {"input": 0.15, "output": 0.60, "name": "OpenRouter DeepSeek V4", "free_tier": False},
+    "llm7": {"input": 0.00, "output": 0.00, "name": "LLM7 Codestral", "free_tier": True, "daily_limit_m": 1},
+    "opencode_zen": {"input": 0.00, "output": 0.00, "name": "OpenCode Zen MiMo", "free_tier": True},
+    "nvidia": {"input": 0.10, "output": 0.10, "name": "NVIDIA Llama 3.1", "free_tier": False},
+    "github": {"input": 0.15, "output": 0.60, "name": "GitHub Models", "free_tier": True, "daily_limit_m": 1.5},
+    "bitrouter_gpt": {"input": 0.50, "output": 1.50, "name": "BitRouter GPT", "free_tier": False},
+    "bitrouter_gemini": {"input": 0.00, "output": 0.00, "name": "BitRouter Gemini", "free_tier": True, "daily_limit": 1000},
+    "mistral": {"input": 0.10, "output": 0.30, "name": "Mistral Medium", "free_tier": False},
+}
+
+# ─── Agent Prompts ───────────────────────────────────────────────
+
+USAGE_ANALYZER_PROMPT = """You are the **Usage Analyzer** in a 3-agent Cost Tracking team.
+
+Your job: Analyze API usage data and estimate costs.
+
+Analyze this usage data:
+{usage_data}
+
+Provider pricing:
+{pricing}
+
+Think about:
+1. **Token Estimates** — How many tokens are being used? (rough: 1 token ≈ 4 chars)
+2. **Cost per Provider** — What's the estimated spend per provider?
+3. **Usage Patterns** — Which commands/services consume the most?
+4. **Free Tier Usage** — How much free quota remains? (LLM7: 1M/day, GitHub: 1.5M/day)
+5. **Trend** — Is usage increasing or decreasing?
+
+Output:
+- PROVIDER_COSTS: Estimated cost per provider (table with provider, tokens, cost)
+- FREE_TIER_STATUS: Remaining free tier for each provider
+- TOP_CONSUMERS: Which files/commands use the most tokens
+- PATTERNS: Usage trends and observations (numbered)
+- OVERALL: One-sentence cost verdict"""
+
+COST_OPTIMIZER_PROMPT = """You are the **Cost Optimizer** in a 3-agent Cost Tracking team.
+
+Your job: Find ways to reduce API costs.
+
+Usage data:
+{usage_data}
+
+Pricing:
+{pricing}
+
+Think about:
+1. **Routing Optimization** — Are we using the cheapest provider for each task?
+2. **Model Selection** — Are there cheaper models that work as well?
+3. **Free Tier Maximization** — Are we fully using free tiers before paid?
+4. **Batching** — Could batching reduce costs?
+5. **Avoidable Waste** — Are there unnecessary API calls, retries, or large contexts?
+6. **Provider Comparison** — For each task type, which provider is cheapest?
+
+Output:
+- CURRENT_SPEND: Estimated current monthly spend
+- SAVINGS_OPPORTUNITIES: Specific savings (numbered, with $ estimate)
+- OPTIMAL_ROUTING: Best provider for each task type
+- FREE_TIER_RECOMMENDATIONS: How to maximize free tiers
+- WASTE: Unnecessary costs to eliminate
+- OVERALL: One-sentence optimization verdict"""
+
+BUDGET_FORECASTER_PROMPT = """You are the **Budget Forecaster** in a 3-agent Cost Tracking team.
+
+Your job: Project future costs and detect anomalies.
+
+Usage data:
+{usage_data}
+
+Pricing:
+{pricing}
+
+Think about:
+1. **Monthly Projection** — Based on current usage, what's the monthly cost?
+2. **Growth Rate** — Is usage growing? At what rate?
+3. **Anomaly Detection** — Any unusual spikes or patterns?
+4. **Budget Alerts** — When would we hit budget limits?
+5. **Free Tier Deadlines** — When will free tiers run out?
+6. **What-If Scenarios** — What if usage doubles? What if we switch providers?
+
+Output:
+- MONTHLY_PROJECTION: Estimated cost for next 30 days
+- GROWTH_TREND: stable / growing / declining with % estimate
+- ANOMALIES: Unusual patterns detected (numbered)
+- ALERTS: Active warnings (e.g., "Free tier will run out in X days")
+- WHAT_IF: Cost comparison of different routing strategies
+- OVERALL: One-sentence forecast verdict"""
+
+
+# ─── Data Collection ────────────────────────────────────────────
+
+def collect_usage_data() -> str:
+    """Collect all available usage/cost data."""
+    parts = []
+    
+    # 1. Active services
+    try:
+        proc = subprocess.run(["sv", "status", "bitrouter", "ai-proxy", "tor"],
+                             capture_output=True, text=True, timeout=5)
+        parts.append(f"ACTIVE SERVICES:\n{proc.stdout.strip()}")
+    except:
+        parts.append("ACTIVE SERVICES: Could not check (sv not available)")
+    
+    # 2. ZES output files
+    zes_dirs = [
+        Path.home() / ".zes",
+        Path.home() / ".local" / "bin",
+        Path.home() / "Zes-Orchestration-System",
+    ]
+    
+    all_files = []
+    for d in zes_dirs:
+        if d.exists():
+            files = list(d.rglob("*"))
+            files = [f for f in files if f.is_file() and not ".git" in str(f) and 
+                     not "node_modules" in str(f) and f.suffix in (".md", ".txt", ".json", ".py", ".js", ".ts")]
+            all_files.extend(files[:100])  # limit
+    
+    # Filter to relevant files
+    output_files = [f for f in all_files if any(x in f.name.lower() for x in 
+                    ["research", "batch", "consolidat", "debug", "quality", "brainstorm", 
+                     "design", "integrate", "report", "output", "result"])]
+    output_files = output_files[:30]  # show top 30
+    
+    if output_files:
+        total_size = sum(f.stat().st_size for f in output_files)
+        parts.append(f"\nOUTPUT FILES ({len(output_files)} total, {total_size:,} bytes):")
+        parts.append(f"  {'Name':50s} {'Size':8s} {'Est. Tokens':12s}")
+        parts.append(f"  {'─'*50} {'─'*8} {'─'*12}")
+        for f in output_files[:15]:
+            size = f.stat().st_size
+            est_tokens = size // 4
+            parts.append(f"  {f.name[:48]:50s} {size:>7,} {est_tokens:>8,}")
+    else:
+        parts.append("\nOUTPUT FILES: No ZES output files found")
+    
+    # 3. Recent research reports (most recent files)
+    research_dir = Path.home() / ".zes" / "research"
+    if research_dir.exists():
+        reports = sorted(research_dir.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)[:10]
+        if reports:
+            parts.append(f"\nRECENT REPORTS ({len(reports)}):")
+            for r in reports:
+                mtime = datetime.fromtimestamp(r.stat().st_mtime).strftime('%m-%d %H:%M')
+                size = r.stat().st_size
+                parts.append(f"  {mtime} {r.name[:50]:50s} {size:>6,} bytes")
+    
+    # 4. Memory hub stats
+    memory_hub = Path.home() / ".zes" / "memory_hub.sqlite"
+    if memory_hub.exists():
+        size = memory_hub.stat().st_size
+        parts.append(f"\nMEMORY HUB: {size:,} bytes")
+    
+    # 5. Run counts (from shell history)
+    try:
+        proc = subprocess.run(["history", "2>/dev/null", "||", "echo", "no history"],
+                             shell=True, capture_output=True, text=True, timeout=5)
+        history = proc.stdout.strip()
+        zes_count = len(re.findall(r'zes\s+', history))
+        if zes_count:
+            parts.append(f"\nZES COMMANDS IN HISTORY: ~{zes_count}")
+    except:
+        pass
+    
+    # 6. Usage log
+    usage_log = Path.home() / ".zes" / "usage.log"
+    if usage_log.exists():
+        try:
+            lines = usage_log.read_text().strip().split("\n")
+            lines = [l for l in lines if l.strip()]
+            if lines:
+                parts.append(f"\nUSAGE LOG: {len(lines)} commands logged")
+                # Show last 20
+                parts.append(f"  Last {min(len(lines), 20)} commands:")
+                for line in lines[-20:]:
+                    parts.append(f"  {line}")
+                # Count by command
+                from collections import Counter
+                cmd_counts = Counter()
+                for line in lines:
+                    fields = line.split("|")
+                    if len(fields) >= 2:
+                        cmd_counts[fields[1]] += 1
+                parts.append(f"\n  Command breakdown:")
+                for cmd, count in cmd_counts.most_common():
+                    parts.append(f"    {cmd}: {count}x")
+        except Exception as e:
+            parts.append(f"\nUSAGE LOG: error reading ({e})")
+    
+    return "\n".join(parts)
+
+
+def get_estimated_monthly_usage() -> str:
+    """Estimate monthly usage based on observable data."""
+    parts = []
+    
+    # Check cron jobs
+    cron_dir = Path.home() / ".hermes" / "cron" / "jobs"
+    if cron_dir.exists():
+        jobs = list(cron_dir.glob("*.json"))
+        parts.append(f"\nACTIVE CRON JOBS: {len(jobs)}")
+        for j in jobs[:5]:
+            try:
+                data = json.loads(j.read_text())
+                schedule = data.get("schedule", "?")
+                cmd = data.get("command", "?")[:40]
+                parts.append(f"  [{schedule}] {cmd}")
+            except:
+                pass
+    
+    # Check recent file modifications as proxy for activity
+    zes_dirs = [
+        Path.home() / ".zes",
+        Path.home() / ".local" / "bin",
+    ]
+    
+    now = datetime.now()
+    recent_files = []
+    for d in zes_dirs:
+        if d.exists():
+            for f in d.rglob("*"):
+                if f.is_file() and f.suffix in (".md", ".txt", ".json", ".log"):
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                    if (now - mtime).days < 7:  # last 7 days
+                        recent_files.append((f, mtime))
+    
+    recent_files.sort(key=lambda x: x[1], reverse=True)
+    
+    if recent_files:
+        parts.append(f"\nFILES MODIFIED IN LAST 7 DAYS: {len(recent_files)}")
+        # Group by day
+        from collections import Counter
+        days = Counter()
+        for f, mtime in recent_files:
+            days[mtime.strftime('%a')] += 1
+        parts.append(f"  Activity: {' | '.join(f'{d}: {c}' for d, c in sorted(days.items()))}")
+    
+    return "\n".join(parts)
+
+
+# ─── AI Provider Call ────────────────────────────────────────────
+
+async def call_provider(name: str, prompt: str, timeout: int = 60) -> Optional[str]:
+    """Call an AI cost agent."""
+    import urllib.request
+    
+    cfg = COST_PROVIDERS.get(name)
+    if not cfg:
+        return f"[ERROR: Unknown provider '{name}']"
+    
+    key = os.environ.get(cfg["env_key"])
+    if not key:
+        return f"[ERROR: Missing API key {cfg['env_key']}]"
+    
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": "You are a cost analysis specialist. Be quantitative, specific, and actionable. Estimate where exact data isn't available."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048,
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "ZES-CostTracker/1.0",
+    }
+    
+    if "openrouter" in name or "openrouter" in cfg.get("url", ""):
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Cost Tracker"
+    
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(cfg["url"], data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp_data = json.loads(resp.read().decode())
+            content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content or "[No content returned]"
+    except Exception as e:
+        return f"[ERROR: {name} failed — {e}]"
+
+
+# ─── Main Cost Logic ─────────────────────────────────────────────
+
+async def run_cost_analysis(quick: bool = False, verbose: bool = False):
+    """Run 3-agent cost analysis."""
+    start = datetime.now()
+    
+    print(f"\n{'='*60}")
+    print(f"  💰 ZES 3-Agent Cost Tracker")
+    print(f"{'='*60}")
+    print(f"  Time:   {start.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}\n")
+    
+    # Collect data
+    print(f"  📊 Collecting usage data...")
+    usage_data = collect_usage_data()
+    monthly_data = get_estimated_monthly_usage()
+    pricing_text = json.dumps(PRICING, indent=2)
+    
+    full_data = f"CURRENT USAGE:\n{usage_data}\n\nMONTHLY ESTIMATES:\n{monthly_data}"
+    
+    print(f"  ✅ Usage data: {len(usage_data)} chars")
+    print(f"  ✅ Monthly estimates: {len(monthly_data)} chars")
+    print(f"  ✅ Pricing data: {len(pricing_text)} chars")
+    
+    if verbose:
+        print(f"\n  📋 Raw data:")
+        print(f"{textwrap.indent(full_data[:1000], '  ')}")
+    
+    if quick:
+        print(f"\n  ⚡ Quick mode — single synthesis only")
+        quick_prompt = f"""Quick cost analysis of ZES system.
+
+Usage data:
+{full_data[:4000]}
+
+Pricing:
+{pricing_text}
+
+Give:
+1. Estimated monthly spend (with breakdown by provider if possible)
+2. Free tier status (how much free quota remaining)
+3. Top 3 cost optimization recommendations
+4. Budget projection for next 30 days
+
+Be concise (max 400 words)."""
+        
+        quick_result = await call_provider("usage", quick_prompt)
+        print(f"\n  💡 QUICK COST ANALYSIS")
+        print(f"\n{textwrap.indent(quick_result.strip(), '  ')}")
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"\n{'='*60}")
+        print(f"  ⏱ {elapsed:.0f}s")
+        print(f"{'='*60}\n")
+        return
+    
+    # Phase 1: 3 parallel agents
+    print(f"\n  🚀 Launching 3 cost analysis agents...\n")
+    
+    agent_context = f"Usage Data:\n{full_data[:4000]}\n\nPricing:\n{pricing_text}"
+    
+    agent_start = datetime.now()
+    tasks = {
+        "usage": call_provider("usage",
+            f"{USAGE_ANALYZER_PROMPT.format(usage_data=full_data[:3000], pricing=pricing_text)}"),
+        "optimizer": call_provider("optimizer",
+            f"{COST_OPTIMIZER_PROMPT.format(usage_data=full_data[:2000], pricing=pricing_text)}"),
+        "forecaster": call_provider("forecaster",
+            f"{BUDGET_FORECASTER_PROMPT.format(usage_data=full_data[:2000], pricing=pricing_text)}"),
+    }
+    
+    results = await asyncio.gather(*[tasks[k] for k in ["usage", "optimizer", "forecaster"]])
+    agent_elapsed = (datetime.now() - agent_start).total_seconds()
+    
+    usage_result, optimizer_result, forecaster_result = results
+    
+    # Phase 2: Synthesis
+    synthesis_prompt = f"""You are the **Cost Synthesizer**. Combine the 3 reports.
+
+USAGE ANALYZER:
+{usage_result[:2000]}
+
+COST OPTIMIZER:
+{optimizer_result[:2000]}
+
+BUDGET FORECASTER:
+{forecaster_result[:2000]}
+
+Produce:
+1. **Monthly Cost Summary** — Estimated spend this month
+2. **Top 3 Savings** — Biggest cost reduction opportunities
+3. **Free Tier Status** — How much free quota remains
+4. **Risk Alerts** — Budget risks (free tier exhaustion, cost spikes)
+5. **Recommendation** — Single best thing to reduce costs
+6. **Budget Verdict** — HEALTHY / CAUTION / OVER_BUDGET"""
+    
+    synthesis_result = await call_provider("usage", synthesis_prompt)
+    synthesis_result = synthesis_result or "[No synthesis available]"
+    
+    total_elapsed = (datetime.now() - start).total_seconds()
+    
+    # ─── Output ────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  📋 COST REPORT ({total_elapsed:.0f}s)")
+    print(f"{'='*60}\n")
+    
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 📊 USAGE ANALYZER                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(usage_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 💰 COST OPTIMIZER                                      │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(optimizer_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🔮 BUDGET FORECASTER                                   │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(forecaster_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 📋 COST VERDICT                                        │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(synthesis_result.strip(), '  ')}")
+    
+    print(f"\n{'='*60}")
+    print(f"  ⏱ {total_elapsed:.0f}s | Agents: {agent_elapsed:.0f}s")
+    print(f"{'='*60}\n")
+
+
+# ─── CLI ──────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ZES 3-Agent Cost Tracker — Usage + Optimization + Budget forecasting in parallel",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes cost                      # Full cost analysis
+              zes cost --quick               # Quick cost summary
+              zes cost --verbose             # Show raw data
+        """),
+    )
+    parser.add_argument("--quick", "-q", action="store_true", help="Quick summary, no full AI")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show raw usage data")
+    
+    args = parser.parse_args()
+    
+    asyncio.run(run_cost_analysis(args.quick, args.verbose))
+
+
+if __name__ == "__main__":
+    main()
