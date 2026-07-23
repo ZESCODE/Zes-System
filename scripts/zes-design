@@ -1,0 +1,399 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""
+ZES Design Review — 3-Agent Parallel Design Auditor.
+
+Spawns 3 parallel AI agents to review a design or codebase:
+  Architecture Reviewer → System structure, components, data flow, scalability
+  Security Reviewer     → Threat model, auth, data protection, compliance
+  UX Reviewer           → User experience, accessibility, interaction design
+
+Synthesizes into a design review report with findings and recommendations.
+
+Usage:
+  zes design --dir ~/project              # Review a project's existing design
+  zes design --doc design.md              # Review a design document
+  zes design --dir ~/ --doc spec.md       # Both codebase + design doc
+  zes design --quick                      # Local info only, skip AI
+"""
+
+import asyncio, json, os, sys, argparse, textwrap, subprocess, re
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+# ─── AI Provider Config ──────────────────────────────────────────
+
+DESIGN_REVIEW_PROVIDERS = {
+    "architecture": {
+        "url": os.environ.get("ARCH_REVIEW_URL", "https://api.groq.com/openai/v1/chat/completions"),
+        "model": os.environ.get("ARCH_REVIEW_MODEL", "llama-3.3-70b-versatile"),
+        "env_key": "GROQ_API_KEY",
+        "name": "Architecture Reviewer (Groq Llama 3.3)",
+    },
+    "security": {
+        "url": os.environ.get("SEC_REVIEW_URL", "https://openrouter.ai/api/v1/chat/completions"),
+        "model": os.environ.get("SEC_REVIEW_MODEL", "deepseek/deepseek-v4-flash"),
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "Security Reviewer (OpenRouter DeepSeek V4)",
+    },
+    "ux": {
+        "url": os.environ.get("UX_REVIEW_URL", "https://api.llm7.io/v1/chat/completions"),
+        "model": os.environ.get("UX_REVIEW_MODEL", "codestral-latest"),
+        "env_key": "LLM7_API_KEY",
+        "name": "UX Reviewer (LLM7 Codestral)",
+    },
+}
+
+# ─── Agent Prompts ───────────────────────────────────────────────
+
+ARCH_PROMPT = """You are the **Architecture Reviewer** in a 3-agent Design Review team.
+
+Your job: Review the design/system for architectural quality.
+
+Analyze:
+1. **System Structure** — Is the architecture clear? Components well-defined?
+2. **Modularity** — Are concerns separated? Can components evolve independently?
+3. **Data Flow** — Is data flow clear? State management appropriate?
+4. **Scalability** — Will the design scale? What bottlenecks exist?
+5. **Extensibility** — Can new features be added without major refactoring?
+6. **Dependencies** — Are dependencies well-managed? Any unnecessary coupling?
+7. **Patterns** — Are appropriate design patterns used? Anti-patterns present?
+
+Be specific — cite files, components, relationships.
+
+Output:
+- STRENGTHS: What the design does well architecturally (numbered)
+- CONCERNS: Architectural risks or issues (numbered, with severity: HIGH/MED/LOW)
+- RECOMMENDATIONS: Specific improvements (numbered)
+- OVERALL: One-sentence architectural verdict"""
+
+SECURITY_PROMPT = """You are the **Security Reviewer** in a 3-agent Design Review team.
+
+Your job: Review the design/system for security posture.
+
+Analyze:
+1. **Threat Model** — What are the main attack vectors?
+2. **Authentication** — Is auth designed securely? Session management?
+3. **Authorization** — Are permissions and access controls appropriate?
+4. **Data Protection** — Is sensitive data handled properly? Encryption?
+5. **Input Validation** — Are inputs sanitized? Injection vectors?
+6. **Dependencies** — Any known vulnerable dependencies?
+7. **Compliance** — Does the design consider regulatory requirements?
+8. **Secrets Management** — How are keys, tokens, credentials handled?
+
+Be specific — cite potential vulnerabilities, code patterns, data flows.
+
+Output:
+- THREATS: Identified attack vectors (numbered, with severity: CRITICAL/HIGH/MED/LOW)
+- WEAKNESSES: Security gaps or concerns
+- STRENGTHS: Security measures done right
+- RECOMMENDATIONS: Specific security improvements (numbered, prioritized)
+- OVERALL: One-sentence security verdict"""
+
+UX_PROMPT = """You are the **UX Reviewer** in a 3-agent Design Review team.
+
+Your job: Review the design/system for user experience quality.
+
+Analyze:
+1. **User Flows** — Are key user journeys intuitive? Clear entry to completion?
+2. **Accessibility** — Is the design accessible? WCAG compliance? Screen reader?
+3. **Consistency** — Are patterns consistent across the experience?
+4. **Feedback** — Does the system provide clear feedback for user actions?
+5. **Error Handling** — Are errors communicated helpfully? Recovery paths?
+6. **Cognitive Load** — Is the interface simple enough? Information architecture?
+7. **Performance Perception** — Is the design responsive? Loading states?
+8. **Mobile/Responsive** — Does the design work across screen sizes?
+
+Be specific — cite user flows, components, interactions.
+
+Output:
+- STRENGTHS: UX elements done well (numbered)
+- ISSUES: Usability problems (numbered, with severity: HIGH/MED/LOW)
+- ACCESSIBILITY: WCAG considerations and gaps
+- RECOMMENDATIONS: Specific UX improvements (numbered, prioritized)
+- OVERALL: One-sentence UX verdict"""
+
+
+# ─── Context Getters ─────────────────────────────────────────────
+
+def get_project_structure(project_dir: str) -> str:
+    """Get project structure for architecture review."""
+    root = Path(project_dir)
+    parts = []
+    
+    # Top-level structure
+    parts.append(f"├── PROJECT: {project_dir}")
+    
+    # Python files
+    py_files = list(root.rglob("*.py"))
+    py_files = [f for f in py_files if "node_modules" not in str(f) and ".git" not in str(f) and "__pycache__" not in str(f)]
+    if py_files:
+        parts.append(f"├── Python: {len(py_files)} files")
+        for f in py_files[:15]:
+            rel = f.relative_to(project_dir)
+            size = f.stat().st_size
+            parts.append(f"│   {'🟢' if size < 500 else '🟡' if size < 2000 else '🔴'} {rel} ({size}b)")
+    
+    # JS/TS files
+    js_files = list(root.rglob("*.js")) + list(root.rglob("*.ts")) + list(root.rglob("*.tsx"))
+    js_files = [f for f in js_files if "node_modules" not in str(f) and ".git" not in str(f)]
+    if js_files:
+        parts.append(f"├── JS/TS: {len(js_files)} files (showing first 10)")
+        for f in js_files[:10]:
+            rel = f.relative_to(project_dir)
+            parts.append(f"│   {rel}")
+    
+    # Config files
+    for config in ["package.json", "tsconfig.json", "vite.config.*", "tailwind.*", "pyproject.toml", "setup.py", "Makefile"]:
+        for f in root.glob(config):
+            rel = f.relative_to(project_dir)
+            parts.append(f"├── Config: {rel}")
+    
+    # Directory tree (depth 2)
+    dirs = sorted([d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".") 
+                   and d.name not in ("node_modules", "__pycache__")])
+    for d in dirs:
+        subdirs = [s.name for s in d.iterdir() if s.is_dir() and not s.name.startswith(".")]
+        parts.append(f"├── {d.name}/")
+        for s in subdirs[:5]:
+            parts.append(f"│   ├── {s}/")
+        if len(subdirs) > 5:
+            parts.append(f"│   └── ... ({len(subdirs)} dirs)")
+    
+    # Key files first 20 lines for understanding
+    key_files = [f for f in py_files if f.name in ("main.py", "app.py", "cli.py", "index.py", "server.py")][:3]
+    for kf in key_files:
+        try:
+            content = kf.read_text()[:500]
+            parts.append(f"\n├── {kf.relative_to(project_dir)} (first 500 chars):\n{content}")
+        except:
+            pass
+    
+    return "\n".join(parts)
+
+
+def get_design_doc_context(doc_path: Optional[str] = None) -> str:
+    """Read design document."""
+    if not doc_path or not os.path.exists(doc_path):
+        return ""
+    try:
+        content = Path(doc_path).read_text()
+        return f"DESIGN DOCUMENT ({doc_path}):\n{content[:8000]}"
+    except:
+        return f"Could not read: {doc_path}"
+
+
+# ─── AI Provider Call ────────────────────────────────────────────
+
+async def call_provider(name: str, prompt: str, timeout: int = 60) -> Optional[str]:
+    """Call an AI design review agent."""
+    import urllib.request
+    
+    cfg = DESIGN_REVIEW_PROVIDERS.get(name)
+    if not cfg:
+        return f"[ERROR: Unknown provider '{name}']"
+    
+    key = os.environ.get(cfg["env_key"])
+    if not key:
+        return f"[ERROR: Missing API key {cfg['env_key']}]"
+    
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": "You are a design review specialist. Be thorough, specific, and constructive. Always cite specific evidence and provide actionable recommendations."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048,
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+        "User-Agent": "ZES-DesignReview/1.0",
+    }
+    
+    if "openrouter" in name or "openrouter" in cfg.get("url", ""):
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Design Review"
+    
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(cfg["url"], data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp_data = json.loads(resp.read().decode())
+            content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content or "[No content returned]"
+    except Exception as e:
+        return f"[ERROR: {name} failed — {e}]"
+
+
+# ─── Main Design Review Logic ────────────────────────────────────
+
+async def run_design_review(project_dir: Optional[str], doc_path: Optional[str],
+                            quick: bool = False, verbose: bool = False):
+    """Run 3-agent design review."""
+    start = datetime.now()
+    
+    print(f"\n{'='*60}")
+    print(f"  🏛️  ZES 3-Agent Design Review")
+    print(f"{'='*60}")
+    if project_dir:
+        print(f"  Project: {project_dir}")
+    if doc_path:
+        print(f"  Design Doc: {doc_path}")
+    print(f"  Time:   {start.strftime('%H:%M:%S')}")
+    print(f"{'='*60}\n")
+    
+    # Gather context
+    project_context = get_project_structure(project_dir) if project_dir else ""
+    design_context = get_design_doc_context(doc_path)
+    
+    context_parts = []
+    if project_context:
+        context_parts.append(project_context)
+    if design_context:
+        context_parts.append(design_context)
+    
+    full_context = "\n\n".join(context_parts) if context_parts else "No project or design doc specified."
+    
+    if verbose:
+        print(f"  Context ({len(full_context)} chars):")
+        print(f"  {full_context[:500]}...\n")
+    
+    if not project_context and not design_context:
+        print(f"  ⚠️  No project directory or design document specified.")
+        print(f"  Provide --dir and/or --doc for meaningful review.\n")
+    
+    if quick:
+        print(f"  ⚡ Quick mode — single synthesis only")
+        quick_prompt = f"""Review this project for design quality (architecture, security, and UX).
+
+{full_context[:5000]}
+
+Give 3-5 key findings across architecture, security, and UX, with recommended improvements. Be concise (max 500 words)."""
+        
+        quick_result = await call_provider("architecture", quick_prompt)
+        print(f"\n  💡 QUICK DESIGN REVIEW")
+        print(f"\n{textwrap.indent(quick_result.strip(), '  ')}")
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"\n{'='*60}")
+        print(f"  ⏱ {elapsed:.0f}s")
+        print(f"{'='*60}\n")
+        return
+    
+    # Phase 1: 3 parallel agents
+    print(f"  🚀 Launching 3 design review agents...\n")
+    
+    agent_context = full_context[:5000]
+    
+    agent_start = datetime.now()
+    tasks = {
+        "architecture": call_provider("architecture",
+            f"{ARCH_PROMPT}\n\nDesign/System to review:\n{agent_context}"),
+        "security": call_provider("security",
+            f"{SECURITY_PROMPT}\n\nDesign/System to review:\n{agent_context}"),
+        "ux": call_provider("ux",
+            f"{UX_PROMPT}\n\nDesign/System to review:\n{agent_context}"),
+    }
+    
+    results = await asyncio.gather(*[tasks[k] for k in ["architecture", "security", "ux"]])
+    agent_elapsed = (datetime.now() - agent_start).total_seconds()
+    
+    arch_result, security_result, ux_result = results
+    
+    # Phase 2: Synthesize
+    synthesis_prompt = f"""You are the **Design Review Synthesizer**. Combine the 3 reviews into a summary report.
+
+ARCHITECTURE REVIEW:
+{arch_result[:2000]}
+
+SECURITY REVIEW:
+{security_result[:2000]}
+
+UX REVIEW:
+{ux_result[:2000]}
+
+Produce:
+1. **Top 5 Findings** — The most critical issues across all 3 dimensions (numbered, with severity)
+2. **Strengths** — What the design does well
+3. **Quick Wins** — Issues that can be fixed immediately
+4. **Strategic Improvements** — Larger changes for future iterations
+5. **Overall Verdict** — One-sentence assessment of design quality"""
+    
+    synthesis_result = await call_provider("architecture", synthesis_prompt)
+    synthesis_result = synthesis_result or "[No synthesis available]"
+    
+    total_elapsed = (datetime.now() - start).total_seconds()
+    
+    # ─── Output ────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  📋 DESIGN REVIEW REPORT ({total_elapsed:.0f}s)")
+    print(f"{'='*60}\n")
+    
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🏛️  ARCHITECTURE REVIEW                                 │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(arch_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🔒 SECURITY REVIEW                                     │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(security_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 🎨 UX REVIEW                                           │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(ux_result.strip(), '  ')}")
+    
+    print(f"\n")
+    print(f"  ┌{'─'*56}┐")
+    print(f"  │ 📊 SYNTHESIS & VERDICT                                  │")
+    print(f"  └{'─'*56}┘")
+    print(f"\n{textwrap.indent(synthesis_result.strip(), '  ')}")
+    
+    print(f"\n{'='*60}")
+    print(f"  ⏱ {total_elapsed:.0f}s | Agents: {agent_elapsed:.0f}s")
+    print(f"{'='*60}\n")
+
+
+# ─── CLI ──────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ZES 3-Agent Design Review — Architecture + Security + UX in parallel",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes design --dir ~/project              # Review project design
+              zes design --doc design.md              # Review design document
+              zes design --dir ~/ --doc spec.md       # Both
+              zes design --quick                       # Quick summary review
+        """),
+    )
+    parser.add_argument("--dir", "-d", help="Project directory to review")
+    parser.add_argument("--doc", help="Design document path (.md, .txt)")
+    parser.add_argument("--quick", "-q", action="store_true", help="Quick review, skip full 3-agent")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    if not args.dir and not args.doc:
+        # Use current dir as default
+        args.dir = os.getcwd()
+    
+    if args.dir and not os.path.isdir(args.dir):
+        print(f"ERROR: Directory not found: {args.dir}")
+        sys.exit(1)
+    
+    if args.doc and not os.path.exists(args.doc):
+        print(f"ERROR: Document not found: {args.doc}")
+        sys.exit(1)
+    
+    asyncio.run(run_design_review(args.dir, args.doc, args.quick, args.verbose))
+
+
+if __name__ == "__main__":
+    main()
