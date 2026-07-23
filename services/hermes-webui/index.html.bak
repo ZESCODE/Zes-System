@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+<title>Hermes Agent — ZES Control</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; }
+  #app { height: 100vh; max-height: 100dvh; }
+  .msg-bubble { max-width: 88%; word-wrap: break-word; white-space: pre-wrap; }
+  #chat-area::-webkit-scrollbar { width: 4px; }
+  #chat-area::-webkit-scrollbar-thumb { background: oklch(0.3 0 0); border-radius: 2px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .msg-bubble { animation: fadeIn .2s ease; }
+  .typing-dot { width: 6px; height: 6px; border-radius: 50%; animation: bounce 1.4s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: .2s; }
+  .typing-dot:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+</style>
+</head>
+<body class="bg-base-300">
+<div id="app" class="flex">
+
+  <!-- ─── DaisyUI Drawer ─── -->
+  <div class="drawer lg:drawer-open">
+    <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content flex flex-col">
+
+      <!-- Header -->
+      <header class="flex items-center gap-2 p-2 lg:p-3 bg-base-200 border-b border-base-300">
+        <label for="main-drawer" class="btn btn-square btn-ghost lg:hidden" aria-label="Menu">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </label>
+        <div class="flex items-center gap-2">
+          <span class="text-lg font-bold text-secondary">🪶 Hermes</span>
+          <span class="text-xs text-base-content/60 hidden sm:inline">Agent Dashboard</span>
+        </div>
+        <select id="model-select" class="select select-bordered select-sm flex-1 max-w-xs"></select>
+        <div id="hermes-status" class="badge badge-xs badge-outline">●</div>
+        <div id="status-dot" class="badge badge-xs badge-error"></div>
+      </header>
+
+      <!-- Chat area -->
+      <div id="chat-area" class="flex-1 overflow-y-auto p-3 lg:p-4 flex flex-col gap-3">
+        <div id="welcome" class="flex flex-col items-center justify-center h-full text-center p-8">
+          <div class="text-6xl mb-4">🪶</div>
+          <h2 class="text-2xl font-bold text-base-content">Hermes Agent Dashboard</h2>
+          <p class="text-sm text-base-content/60 max-w-md mt-2">AI agent gateway · Session management · System control via 9Router.</p>
+          <div class="flex flex-wrap gap-2 justify-center mt-6">
+            <button onclick="sendExample('Show Hermes system status')" class="btn btn-outline btn-sm">📊 System Status</button>
+            <button onclick="sendExample('List my Hermes sessions')" class="btn btn-outline btn-sm">💬 Sessions</button>
+            <button onclick="sendExample('What providers can 9Router access?')" class="btn btn-outline btn-sm">🔌 Providers</button>
+            <button onclick="sendExample('Run health checks')" class="btn btn-outline btn-sm">🏥 Health Check</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="border-t border-base-300 bg-base-200 p-2 lg:p-3">
+        <div class="flex gap-2 items-end">
+          <textarea id="chat-input" class="textarea textarea-bordered flex-1 min-h-[44px] max-h-[120px]" placeholder="Message Hermes... (/plan, /tdd, /help)" rows="1"></textarea>
+          <button id="send-btn" class="btn btn-secondary" disabled>▶</button>
+        </div>
+        <div class="flex gap-1 items-center mt-2 flex-wrap text-xs text-base-content/40">
+          <button class="btn btn-ghost btn-xs">📎 Context</button>
+          <button class="btn btn-ghost btn-xs" id="btn-clear">🗑 Clear</button>
+          <button class="btn btn-ghost btn-xs" id="btn-copy">📋 Copy</button>
+          <span id="model-name" class="ml-auto"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Drawer sidebar ─── -->
+    <div class="drawer-side z-40">
+      <label for="main-drawer" class="drawer-overlay"></label>
+      <div class="menu p-4 w-72 min-h-full bg-base-200 text-base-content flex flex-col overflow-y-auto">
+        
+        <!-- Logo -->
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-base-300">
+          <div>
+            <span class="text-xl font-bold text-secondary">🪶 Hermes</span>
+            <span class="text-[10px] block text-base-content/40">v0.18.2 · ZES Control</span>
+          </div>
+        </div>
+
+        <!-- Hermes Actions -->
+        <div class="mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/40">Hermes Actions</span>
+          <ul class="menu menu-sm">
+            <li><a onclick="hermesStatus()"><span class="text-lg">📊</span> Agent Status</a></li>
+            <li><a onclick="hermesSessions()"><span class="text-lg">💬</span> Sessions</a></li>
+            <li><a onclick="hermesConfig()"><span class="text-lg">⚙️</span> Configuration</a></li>
+            <li><a onclick="sendSlash('help')"><span class="text-lg">❓</span> /help</a></li>
+          </ul>
+        </div>
+
+        <!-- Slash Commands -->
+        <div class="mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/40">Slash Commands</span>
+          <ul class="menu menu-sm">
+            <li><a onclick="sendSlash('plan')"><span class="text-lg">📋</span> /plan</a></li>
+            <li><a onclick="sendSlash('tdd')"><span class="text-lg">🧪</span> /tdd</a></li>
+            <li><a onclick="sendSlash('code-review')"><span class="text-lg">🔍</span> /code-review</a></li>
+            <li><a onclick="sendSlash('build-fix')"><span class="text-lg">🔧</span> /build-fix</a></li>
+            <li><a onclick="sendSlash('verify')"><span class="text-lg">✅</span> /verify</a></li>
+          </ul>
+        </div>
+
+        <!-- System Tools -->
+        <div class="mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/40">System Tools</span>
+          <ul class="menu menu-sm">
+            <li><a onclick="systemStatus()"><span class="text-lg">📊</span> System Status</a></li>
+            <li><a onclick="runEvals()"><span class="text-lg">🏥</span> Health Evals</a></li>
+            <li><a onclick="runBackup()"><span class="text-lg">💾</span> Backup Config</a></li>
+            <li><a onclick="runSecurity()"><span class="text-lg">🛡️</span> Security Scan</a></li>
+          </ul>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/40">Quick Links</span>
+          <ul class="menu menu-sm">
+            <li><a href="http://localhost:8083/" target="_blank"><span class="text-lg">📊</span> Dashboard v4</a></li>
+            <li><a href="http://localhost:8788/"><span class="text-lg">👥</span> Claude Teams</a></li>
+            <li><a href="http://localhost:8084/" target="_blank"><span class="text-lg">⚡</span> Agent UI</a></li>
+            <li><a href="http://localhost:8000/" target="_blank"><span class="text-lg">💻</span> VS Code</a></li>
+            <li><a href="http://localhost:7173/" target="_blank"><span class="text-lg">🖥</span> ttyd Terminal</a></li>
+            <li><a href="http://localhost:20128/" target="_blank"><span class="text-lg">🌐</span> 9Router</a></li>
+          </ul>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-auto pt-3 border-t border-base-300 text-xs text-base-content/40">
+          Hermes Agent v0.18.2 · daisyUI
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container" class="toast toast-end toast-bottom z-50"></div>
+
+<!-- Sessions panel -->
+<div id="sessions-panel" class="hidden fixed top-0 right-0 w-72 h-full bg-base-200 border-l border-base-300 z-30 flex flex-col shadow-xl">
+  <div class="flex items-center justify-between p-3 border-b border-base-300">
+    <span class="font-semibold">💬 Hermes Sessions</span>
+    <button id="close-sessions" class="btn btn-ghost btn-sm btn-square">✕</button>
+  </div>
+  <div id="sessions-list" class="flex-1 overflow-y-auto p-2 text-sm"></div>
+</div>
+
+<script>
+(function() {
+  const D = document;
+  const chatArea = D.getElementById('chat-area');
+  const welcome = D.getElementById('welcome');
+  const chatInput = D.getElementById('chat-input');
+  const sendBtn = D.getElementById('send-btn');
+  const modelSelect = D.getElementById('model-select');
+  const statusDot = D.getElementById('status-dot');
+  const hermesStatusBadge = D.getElementById('hermes-status');
+  const sessionsPanel = D.getElementById('sessions-panel');
+  const sessionsList = D.getElementById('sessions-list');
+  const toastContainer = D.getElementById('toast-container');
+  const modelName = D.getElementById('model-name');
+
+  let currentModel = 'gh/gpt-4o-mini';
+  let messages = [];
+  let sessionId = Date.now().toString(36);
+  let isStreaming = false;
+
+  // ─── Toast ─────────────────────────────────────────────────────
+  window.showToast = function(msg, type = 'info', duration = 3000) {
+    const colors = { info: 'alert-info', success: 'alert-success', warning: 'alert-warning', error: 'alert-error' };
+    const t = D.createElement('div');
+    t.className = `alert ${colors[type] || 'alert-info'} shadow-lg transition-all duration-300 mb-2`;
+    t.innerHTML = `<span>${msg}</span>`;
+    toastContainer.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, duration);
+  };
+
+  // ─── Load models ──────────────────────────────────────────────
+  async function loadModels() {
+    try {
+      const res = await fetch('/api/models');
+      const models = await res.json();
+      modelSelect.innerHTML = models.map(m => 
+        `<option value="${m.id}">${m.name} (${m.provider})</option>`
+      ).join('');
+      currentModel = localStorage.getItem('hermes_model') || models[0]?.id || currentModel;
+      if (modelSelect.querySelector(`option[value="${currentModel}"]`)) modelSelect.value = currentModel;
+      updateModelDisplay();
+    } catch (e) { showToast('Failed to load models', 'error'); }
+  }
+
+  function updateModelDisplay() {
+    const opt = modelSelect.selectedOptions[0];
+    modelName.textContent = opt ? opt.textContent : '';
+  }
+
+  modelSelect.addEventListener('change', () => {
+    currentModel = modelSelect.value;
+    localStorage.setItem('hermes_model', currentModel);
+    updateModelDisplay();
+  });
+
+  // ─── Hermes Status Check ──────────────────────────────────────
+  async function checkHermesStatus() {
+    try {
+      const res = await fetch('/api/hermes/status');
+      const data = await res.json();
+      const ok = data.gateway === 'running';
+      hermesStatusBadge.className = `badge badge-xs ${ok ? 'badge-success' : 'badge-error'}`;
+      hermesStatusBadge.title = ok ? 'Gateway: running' : 'Gateway: ' + data.gateway;
+    } catch { hermesStatusBadge.className = 'badge badge-xs badge-error'; }
+  }
+
+  // ─── Send message ─────────────────────────────────────────────
+  window.sendExample = function(text) {
+    chatInput.value = text;
+    sendMessage();
+  };
+
+  window.sendSlash = function(cmd) {
+    chatInput.value = '/' + cmd;
+    sendMessage();
+  };
+
+  // Auto-resize input
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    sendBtn.disabled = !chatInput.value.trim();
+  });
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text || isStreaming) return;
+
+    // Hide welcome
+    if (welcome) welcome.style.display = 'none';
+    
+    // Add user message
+    addMessage(text, 'user');
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    messages.push({ role: 'user', content: text });
+
+    // Add typing indicator
+    const typingDiv = D.createElement('div');
+    typingDiv.className = 'flex items-start gap-2 msg-bubble';
+    typingDiv.id = 'typing-indicator';
+    typingDiv.innerHTML = `<div class="avatar placeholder"><div class="bg-secondary text-secondary-content w-8 rounded-full"><span class="text-xs">H</span></div></div><div class="flex gap-1 p-3 bg-base-200 rounded-2xl rounded-tl-none"><div class="typing-dot bg-secondary"></div><div class="typing-dot bg-secondary"></div><div class="typing-dot bg-secondary"></div></div>`;
+    chatArea.appendChild(typingDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    isStreaming = true;
+    const assistantMsgDiv = D.createElement('div');
+    assistantMsgDiv.className = 'flex items-start gap-2 msg-bubble';
+    const bubble = D.createElement('div');
+    bubble.className = 'p-3 bg-base-200 rounded-2xl rounded-tl-none text-sm max-w-[88%]';
+    
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, model: currentModel })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        bubble.textContent = `❌ Error: ${err.error || res.statusText}`;
+        assistantMsgDiv.innerHTML = `<div class="avatar placeholder"><div class="bg-secondary text-secondary-content w-8 rounded-full"><span class="text-xs">H</span></div></div>`;
+        assistantMsgDiv.appendChild(bubble);
+        chatArea.removeChild(typingIndicator);
+        chatArea.appendChild(assistantMsgDiv);
+        messages.push({ role: 'assistant', content: bubble.textContent });
+        isStreaming = false;
+        chatArea.scrollTop = chatArea.scrollHeight;
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let buffer = '';
+
+      // Replace typing with assistant bubble
+      chatArea.removeChild(typingDiv);
+      assistantMsgDiv.innerHTML = `<div class="avatar placeholder"><div class="bg-secondary text-secondary-content w-8 rounded-full"><span class="text-xs">H</span></div></div>`;
+      assistantMsgDiv.appendChild(bubble);
+      chatArea.appendChild(assistantMsgDiv);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) { fullContent += parsed.content; bubble.textContent = fullContent; }
+              if (parsed.error) { fullContent += `\n\n❌ ${parsed.error}`; bubble.textContent = fullContent; }
+            } catch {}
+          }
+        }
+        chatArea.scrollTop = chatArea.scrollHeight;
+      }
+
+      messages.push({ role: 'assistant', content: fullContent });
+    } catch (err) {
+      if (typingDiv.parentNode) chatArea.removeChild(typingDiv);
+      bubble.textContent = `❌ Connection error: ${err.message}`;
+      assistantMsgDiv.innerHTML = `<div class="avatar placeholder"><div class="bg-secondary text-secondary-content w-8 rounded-full"><span class="text-xs">H</span></div></div>`;
+      assistantMsgDiv.appendChild(bubble);
+      chatArea.appendChild(assistantMsgDiv);
+      messages.push({ role: 'assistant', content: bubble.textContent });
+    }
+
+    isStreaming = false;
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  // ─── Add message helper ───────────────────────────────────────
+  function addMessage(text, role) {
+    const div = D.createElement('div');
+    const isUser = role === 'user';
+    div.className = `flex items-start gap-2 msg-bubble ${isUser ? 'flex-row-reverse' : ''}`;
+    const avatar = isUser ? 'U' : 'H';
+    const color = isUser ? 'bg-primary text-primary-content' : 'bg-secondary text-secondary-content';
+    div.innerHTML = `<div class="avatar placeholder"><div class="${color} w-8 rounded-full"><span class="text-xs">${avatar}</span></div></div>`;
+    const bubble = D.createElement('div');
+    bubble.className = `p-3 rounded-2xl text-sm max-w-[88%] ${isUser ? 'bg-primary text-primary-content rounded-tr-none' : 'bg-base-200 rounded-tl-none'}`;
+    bubble.textContent = text;
+    div.appendChild(bubble);
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  // ─── Hermes Actions ───────────────────────────────────────────
+  window.hermesStatus = async function() {
+    try {
+      const res = await fetch('/api/hermes/status');
+      const data = await res.json();
+      addMessage(`**Hermes Agent Status**\n\nVersion: ${data.version}\nGateway: ${data.gateway}\nPID: ${data.pid || 'N/A'}\nActive Agents: ${data.active_agents}\nSessions: ${data.sessions}\nConfig: ${data.config ? '✅ present' : '❌ missing'}`, 'user');
+      messages.push({ role: 'user', content: 'Show Hermes status' });
+      messages.push({ role: 'assistant', content: JSON.stringify(data, null, 2) });
+      if (welcome) welcome.style.display = 'none';
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  window.hermesSessions = async function() {
+    try {
+      const res = await fetch('/api/hermes/sessions');
+      const sessions = await res.json();
+      let text = sessions.length ? `**Hermes Sessions (${sessions.length})**\n` : 'No sessions found.';
+      sessions.slice(0, 10).forEach(s => {
+        text += `\n• ${s.title} (${s.messageCount || '?'} msgs)`;
+      });
+      addMessage(text, 'user');
+      if (welcome) welcome.style.display = 'none';
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  window.hermesConfig = async function() {
+    try {
+      const res = await fetch('/api/hermes/providers');
+      const data = await res.json();
+      addMessage(`**Hermes Configuration**\n\nPrimary Provider:\n• Base URL: ${data.primary?.base_url}\n• Model: ${data.primary?.default_model}\n• Provider: ${data.primary?.provider}`, 'user');
+      if (welcome) welcome.style.display = 'none';
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  // ─── System Tools ─────────────────────────────────────────────
+  window.systemStatus = async function() {
+    addMessage('🔍 Checking system status...', 'user');
+    if (welcome) welcome.style.display = 'none';
+    try {
+      const res = await fetch('/api/system/status');
+      const data = await res.json();
+      let text = `**System Status** (${data.timestamp || ''})\n`;
+      data.services.forEach(s => {
+        const icon = s.running && s.portOpen ? '✅' : s.running ? '⚠️' : '❌';
+        text += `\n${icon} **${s.name}** (:${s.port || 'N/A'})`;
+      });
+      text += `\n\nNode: ${data.env?.node || 'N/A'}`;
+      addMessage(text, 'user');
+      messages.push({ role: 'user', content: 'System status check' });
+      messages.push({ role: 'assistant', content: text });
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  window.runEvals = async function() {
+    addMessage('🏥 Running health evals...', 'user');
+    if (welcome) welcome.style.display = 'none';
+    try {
+      const res = await fetch('/api/system/evals');
+      const data = await res.json();
+      addMessage('```\n' + data.output.slice(0, 1500) + '\n```', 'user');
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  window.runBackup = async function() {
+    addMessage('💾 Running backup...', 'user');
+    if (welcome) welcome.style.display = 'none';
+    try {
+      const res = await fetch('/api/system/backup', { method: 'POST' });
+      const data = await res.json();
+      addMessage('```\n' + data.output.slice(0, 1000) + '\n```', 'user');
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  window.runSecurity = async function() {
+    addMessage('🛡️ Running security scan...', 'user');
+    if (welcome) welcome.style.display = 'none';
+    try {
+      const res = await fetch('/api/system/security');
+      const data = await res.json();
+      addMessage('```\n' + data.output.slice(0, 1500) + '\n```', 'user');
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+  // ─── Clear / Copy ─────────────────────────────────────────────
+  D.getElementById('btn-clear').addEventListener('click', () => {
+    chatArea.querySelectorAll('.msg-bubble').forEach(el => el.remove());
+    messages = [];
+    if (welcome) welcome.style.display = 'flex';
+  });
+
+  D.getElementById('btn-copy').addEventListener('click', () => {
+    const text = messages.map(m => `${m.role}: ${m.content}`).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success'));
+  });
+
+  D.getElementById('close-sessions').addEventListener('click', () => {
+    sessionsPanel.classList.add('hidden');
+  });
+
+  // ─── Init ──────────────────────────────────────────────────────
+  loadModels();
+  checkHermesStatus();
+  setInterval(checkHermesStatus, 30000);
+  sendBtn.disabled = true;
+
+  // Add provider endpoint (reuse from agent-server pattern)
+  window.zesProviders = async function() {
+    addMessage('🔌 Checking AI providers...', 'user');
+    if (welcome) welcome.style.display = 'none';
+    try {
+      const res = await fetch('/api/hermes/providers');
+      const data = await res.json();
+      addMessage('```\n' + JSON.stringify(data, null, 2).slice(0, 1500) + '\n```', 'user');
+    } catch (e) { addMessage(`❌ ${e.message}`, 'user'); }
+  };
+
+})();
+</script>
+</body>
+</html>

@@ -11,25 +11,31 @@ ZES is a unified personal AI system running on Termux (Android). It orchestrates
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    ZES System                         │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
-│  │  Codex   │  │  Hermes  │  │ Claude   │           │
-│  │  CLI     │  │  Agent   │  │  Code    │           │
-│  │ (coder)  │  │ (memory) │  │ (review) │           │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘           │
-│       │             │             │                  │
-│       └─────────┬───┴─────────────┘                  │
-│                 ▼                                     │
-│       ┌──────────────────┐                           │
-│       │  ZES Memory Hub   │  (unified memory)         │
-│       └──────────────────┘                           │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
-│  │ 9Router  │  │  amux    │  │ ZES Dashboard    │   │
-│  │ AI GW    │  │  Control │  │ (Vite + React)   │   │
-│  │ :20128   │  │  Plane   │  │ :5050             │   │
-│  └──────────┘  └──────────┘  └──────────────────┘   │
+│                    ZES System v3.6                      │
+│                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │  Codex   │  │  Hermes  │  │ Claude   │            │
+│  │  CLI     │  │  Agent   │  │  Code    │            │
+│  │ (coder)  │  │(orchestr)│  │ (review) │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+│       │             │             │                   │
+│       └─────────┬───┴─────────────┘                   │
+│                 ▼                                      │
+│       ┌──────────────────┐                            │
+│       │  ZES Memory Hub   │  (unified memory)          │
+│       └──────────────────┘                            │
+│                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐    │
+│  │BitRouter │  │ AI-Proxy │  │ ZES Dashboard    │    │
+│  │ :4356    │  │ :20129   │  │ (shadcn + Vite)  │    │
+│  │GPT+Gemini│  │Groq+OR+  │  │ :5050            │    │
+│  │          │  │Mistral+NV│  │                   │    │
+│  └──────────┘  └──────────┘  └──────────────────┘    │
+│                                                       │
+│  ┌──────────┐  ┌──────────┐                           │
+│  │   Tor    │  │iprotate  │  ← IP rotation layer      │
+│  │ :9050    │  │15min     │                           │
+│  └──────────┘  └──────────┘                           │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -138,22 +144,28 @@ zes-memory write <txt>  # Write memory entry
 
 | Service | Port | Status | Managed By |
 |---------|------|--------|------------|
-| ZES Dashboard (Vite) | `:5050` | ✅ | runit (zes-dashboard) |
-| Flask API | `:5002` | ✅ | runit (zes-flask-api) |
-| 9Router AI Gateway | `:20128` | ✅ | runit (9router-proxy) |
-| amux Control Plane | `:8822` | ✅ | runit (amux) |
-| Hermes Dashboard | `:9119` | ✅ | runit (hermes-dashboard) |
-| Hermes Gateway | — | ✅ | runit (hermes-gateway) |
-| Claude Proxy | `:5905` | ✅ | runit (claude-proxy) |
+| BitRouter AI Gateway | `:4356` | ✅ | runsv (bitrouter) |
+| AI-Proxy (Groq/OR/Mistral/NV) | `:20129` | ✅ | runsv (ai-proxy) |
+| ZES Dashboard (Vite) | `:5050` | ✅ | runsv (zes-dashboard) |
+| Flask API | `:5002` | ✅ | runsv (zes-flask-api) |
+| 9Router (legacy) | `:20128` | ⚠️ | runsv (9router-proxy) — deprecated |
+| amux Control Plane | `:8822` | ✅ | runsv (amux) |
+| Hermes Dashboard | `:9119` | ✅ | runsv (hermes-dashboard) |
+| Hermes Gateway | — | ✅ | runsv (hermes-gateway) |
+| Tor SOCKS5 | `:9050` | ✅ | runsv (tor) |
+| Tor Control | `:9051` | ✅ | runsv (tor) |
+| iprotate (Tor IP rotation) | — | ✅ | runsv (zes-ip-rotator) |
 | Control Center | `:8083` | ✅ | legacy |
-| ZES Memory Sync | — | ✅ | runit (zes-memory-sync) |
-| ttyd web terminal | `:7173` | ✅ | runit |
+| ZES Memory Sync | — | ✅ | runsv (zes-memory-sync) |
+| ttyd web terminal | `:7173` | ✅ | runsv |
 
 ### Provider Chain
 ```
-All agents ──→ 9Router (:20128) ──→ LLM providers (OpenAI, Anthropic, Groq, etc.)
-Claude Code ──→ 9Router (:5905 proxy) ──→ Anthropic
-Hermes ──→ 9Router (:20128/v1) ──→ gpt-4o-mini / claude-sonnet / deepseek
+All agents ──→ OpenCode ──→ BitRouter (:4356) ──→ OpenAI / Google Gemini
+                  │
+                  └──→ AI-Proxy (:20129) ──→ Groq / OpenRouter / Mistral / NVIDIA
+Claude Code ──→ BitRouter (:4356) ──→ backed by API key (needs credit balance)
+Hermes ──→ BitRouter (:4356) ──→ openai/gpt-5.4-mini (default)
 ```
 
 ---
