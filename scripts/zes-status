@@ -1,0 +1,384 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""
+ZES Unified Status Dashboard — All 11 tools, providers, services, resources at a glance.
+
+Usage:
+  zes status                              # Full unified dashboard
+  zes status --json                       # JSON output for web widgets
+  zes status --watch                      # Live-refresh mode (every 5s)
+  zes status --simple                     # One-line compact summary
+"""
+
+import json, os, sys, argparse, textwrap, subprocess, re, time, urllib.request
+from datetime import datetime, date
+from pathlib import Path
+from collections import Counter
+
+# ─── Tools Registry ──────────────────────────────────────────────
+
+TOOLS = [
+    {"cmd": "research", "alias": "r", "agents": "3-7", "desc": "Multi-agent deep research", "engine": "zes-research"},
+    {"cmd": "batch", "alias": "b", "agents": "RR", "desc": "Batch task processing", "engine": "zes-batch"},
+    {"cmd": "consolidate", "alias": "c", "agents": "3", "desc": "Memory hub consolidation", "engine": "zes-consolidate"},
+    {"cmd": "debug", "alias": "d", "agents": "3+s", "desc": "Systematic debugging", "engine": "zes-debug"},
+    {"cmd": "quality", "alias": "q", "agents": "3+s", "desc": "Code quality gate", "engine": "zes-quality"},
+    {"cmd": "verify", "alias": "v", "agents": "3+s", "desc": "Verification before completion", "engine": "zes-verify"},
+    {"cmd": "brainstorm", "alias": "bs", "agents": "3+s", "desc": "Divergent brainstorming", "engine": "zes-brainstorm"},
+    {"cmd": "design", "alias": "dr", "agents": "3+s", "desc": "Design review + threat model", "engine": "zes-design"},
+    {"cmd": "integrate", "alias": "it", "agents": "3+s", "desc": "Integration verification", "engine": "zes-integrate"},
+    {"cmd": "cost", "alias": "ct", "agents": "3+s", "desc": "Cost analysis + forecasting", "engine": "zes-cost"},
+    {"cmd": "bench", "alias": "bm", "agents": "3+s", "desc": "Performance benchmarking", "engine": "zes-bench"},
+]
+
+PROVIDERS = [
+    {"name": "Groq", "key_env": "GROQ_API_KEY", "model": "Llama 3.3 70B"},
+    {"name": "OpenRouter", "key_env": "OPENROUTER_API_KEY", "model": "DeepSeek V4 Flash"},
+    {"name": "LLM7", "key_env": "LLM7_API_KEY", "model": "Codestral Latest"},
+    {"name": "OpenCode Zen", "key_env": "OPENCODE_ZEN_KEY", "model": "MiMo-V2.5"},
+    {"name": "GitHub Models", "key_env": "GITHUB_TOKEN", "model": "GPT-4.1"},
+    {"name": "Mistral", "key_env": "MISTRAL_API_KEY", "model": "Mistral Medium"},
+    {"name": "NVIDIA", "key_env": "NVIDIA_API_KEY", "model": "Llama 3.1 70B"},
+]
+
+SERVICES = [
+    {"name": "BitRouter", "port": 4356, "endpoint": "/v1/models"},
+    {"name": "AI-Proxy", "port": 20129, "endpoint": "/v1/models"},
+    {"name": "ZES Dashboard", "port": 5050, "endpoint": "/"},
+    {"name": "Hermes Dashboard", "port": 9119, "endpoint": "/"},
+    {"name": "amux", "port": 8822, "endpoint": "/api/health"},
+    {"name": "Tor", "port": 9050, "endpoint": None},
+]
+
+# ─── Collectors ─────────────────────────────────────────────────
+
+def get_tool_usage():
+    """Read usage log and build tool stats."""
+    log_path = Path.home() / ".zes" / "usage.log"
+    results = {"total": 0, "today": 0, "by_tool": {}, "last_run": {}, "days_active": set()}
+    
+    if not log_path.exists():
+        return results
+    
+    today_str = date.today().isoformat()
+    
+    try:
+        for line in log_path.read_text().strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            if len(parts) < 2:
+                continue
+            ts = parts[0]
+            cmd = parts[1]
+            day = ts[:10]
+            
+            results["total"] += 1
+            results["by_tool"][cmd] = results["by_tool"].get(cmd, 0) + 1
+            results["days_active"].add(day)
+            results["last_run"][cmd] = ts
+            
+            if day == today_str:
+                results["today"] += 1
+    except:
+        pass
+    
+    return results
+
+
+def check_providers():
+    """Quick check which providers have keys and respond."""
+    results = []
+    for prov in PROVIDERS:
+        key = os.environ.get(prov["key_env"])
+        if not key:
+            results.append({"name": prov["name"], "status": "no_key", "detail": "No key"})
+            continue
+        # Just check key exists, don't ping (that's what --check is for)
+        key_preview = key[:8] + "..." if len(key) > 12 else "set"
+        results.append({"name": prov["name"], "status": "key_ok", "detail": key_preview})
+    
+    return results
+
+
+def check_services():
+    """Check service endpoints."""
+    results = []
+    for svc in SERVICES:
+        url = f"http://127.0.0.1:{svc['port']}{svc['endpoint'] or '/'}"
+        start = time.time()
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                elapsed = (time.time() - start) * 1000
+                results.append({
+                    "name": svc["name"], "port": svc["port"],
+                    "status": "up", "latency_ms": round(elapsed, 0)
+                })
+        except Exception as e:
+            results.append({
+                "name": svc["name"], "port": svc["port"],
+                "status": "down", "latency_ms": None, "error": str(e)[:40]
+            })
+    return results
+
+
+def get_system_stats():
+    """Gather system resource stats."""
+    stats = {}
+    
+    # CPU load
+    try:
+        with open("/proc/loadavg") as f:
+            parts = f.read().strip().split()
+            stats["load_1m"] = float(parts[0])
+            stats["load_5m"] = float(parts[1])
+            stats["load_15m"] = float(parts[2])
+    except:
+        pass
+    
+    # Memory
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = f.read()
+            mem_total = int(re.search(r'MemTotal:\s+(\d+)', meminfo).group(1))
+            mem_avail = int(re.search(r'MemAvailable:\s+(\d+)', meminfo).group(1))
+            stats["mem_total_gb"] = round(mem_total / 1024 / 1024, 1)
+            stats["mem_avail_gb"] = round(mem_avail / 1024 / 1024, 1)
+            stats["mem_used_pct"] = round((1 - mem_avail / mem_total) * 100, 0)
+    except:
+        pass
+    
+    # Disk
+    try:
+        proc = subprocess.run(["df", "-h", str(Path.home())],
+                             capture_output=True, text=True, timeout=5)
+        lines = proc.stdout.strip().split("\n")
+        if len(lines) >= 2:
+            parts = lines[1].split()
+            stats["disk_size"] = parts[1]
+            stats["disk_used"] = parts[2]
+            stats["disk_avail"] = parts[3]
+            stats["disk_pct"] = parts[4]
+    except:
+        pass
+    
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            uptime_secs = float(f.read().split()[0])
+            days = int(uptime_secs // 86400)
+            hours = int((uptime_secs % 86400) // 3600)
+            stats["uptime"] = f"{days}d {hours}h"
+    except:
+        pass
+    
+    # Memory hub
+    mh = Path.home() / ".zes" / "memory_hub.sqlite"
+    if mh.exists():
+        stats["memory_hub_size_mb"] = round(mh.stat().st_size / 1024 / 1024, 1)
+    
+    return stats
+
+
+# ─── Display ─────────────────────────────────────────────────────
+
+def print_dashboard(usage, providers, services, system, simple=False):
+    """Print the unified dashboard."""
+    if simple:
+        # One-line compact
+        tools_up = sum(1 for t in TOOLS if Path.home() / ".local" / "bin" / t["engine"] in [Path.home() / ".local" / "bin" / t["engine"]] or True)
+        svc_up = sum(1 for s in services if s["status"] == "up")
+        prov_ok = sum(1 for p in providers if p["status"] == "key_ok")
+        load = system.get("load_1m", 0)
+        mem = system.get("mem_used_pct", 0)
+        print(f"ZES: {usage['total']} runs | {tools_up} tools | {prov_ok}/{len(providers)} providers | {svc_up}/{len(services)} services | load {load:.1f} | mem {mem:.0f}%")
+        return
+    
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    print(f"\n{'╔' + '═'*58 + '╗'}")
+    print(f"║  🏛️  ZES UNIFIED STATUS DASHBOARD{' ' * 28}║")
+    print(f"║  {now}{' ' * (41 - len(now))}║")
+    print(f"{'╚' + '═'*58 + '╝'}")
+    
+    # ─── Tool Usage ──────────────────────────────────────────
+    print(f"\n{'┌─' + '─'*56 + '─┐'}")
+    print(f"│ 🛠️  ZES CLI TOOLS ({len(TOOLS)} commands)                 │")
+    print(f"{'└─' + '─'*56 + '─┘'}")
+    
+    print(f"  {'Command':<16} {'Alias':<6} {'Agents':<8} {'Runs':<6} {'Last Run':<16} {'Description'}")
+    print(f"  {'─'*16} {'─'*6} {'─'*8} {'─'*6} {'─'*16} {'─'*20}")
+    
+    for tool in TOOLS:
+        cmd = tool["cmd"]
+        runs = usage["by_tool"].get(cmd, 0)
+        last = usage["last_run"].get(cmd, "—")
+        if last != "—":
+            last = last[11:16] if len(last) > 16 else last  # Just HH:MM
+        icon = "🟢" if os.path.exists(os.path.expanduser(f"~/.local/bin/{tool['engine']}")) else "🔴"
+        runs_str = str(runs) if runs > 0 else "—"
+        print(f"  {icon} {cmd:<14} {tool['alias']:<6} {tool['agents']:<8} {runs_str:<6} {last:<16} {tool['desc']}")
+    
+    print(f"\n  📊 Total commands: {usage['total']} | Today: {usage['today']} | Active days: {len(usage['days_active'])}")
+    
+    # ─── LLM Providers ───────────────────────────────────────
+    print(f"\n{'┌─' + '─'*56 + '─┐'}")
+    print(f"│ 🔌 LLM PROVIDERS ({len(providers)} configured)                   │")
+    print(f"{'└─' + '─'*56 + '─┘'}")
+    
+    for p in providers:
+        icon = {"key_ok": "🟢", "no_key": "⚪"}.get(p["status"], "🔴")
+        print(f"  {icon} {p['name']:<18} {p['detail']}")
+    
+    # ─── Services ────────────────────────────────────────────
+    print(f"\n{'┌─' + '─'*56 + '─┐'}")
+    print(f"│ 🌐 SERVICES & DAEMONS ({len(services)} checked)                │")
+    print(f"{'└─' + '─'*56 + '─┘'}")
+    
+    for s in services:
+        icon = "🟢" if s["status"] == "up" else "🔴"
+        latency = f"{s['latency_ms']:.0f}ms" if s.get("latency_ms") else "—"
+        detail = latency if s["status"] == "up" else s.get("error", "DOWN")
+        print(f"  {icon} :{s['port']:<5} {s['name']:<18} {detail}")
+    
+    # ─── System Resources ────────────────────────────────────
+    print(f"\n{'┌─' + '─'*56 + '─┐'}")
+    print(f"│ 🖥️  SYSTEM RESOURCES                                    │")
+    print(f"{'└─' + '─'*56 + '─┘'}")
+    
+    # Resource bar helper
+    def bar(pct, width=30):
+        filled = int(pct / 100 * width)
+        return "█" * filled + "░" * (width - filled)
+    
+    mem_pct = system.get("mem_used_pct", 0)
+    load = system.get("load_1m", 0)
+    disk_pct_str = system.get("disk_pct", "?")
+    try:
+        disk_pct = int(disk_pct_str.replace("%", ""))
+    except:
+        disk_pct = 0
+    
+    print(f"  🧠 Memory: {system.get('mem_used_gb', '?')}G / {system.get('mem_total_gb', '?')}G used")
+    if mem_pct:
+        mem_color = "🟢" if mem_pct < 70 else "🟡" if mem_pct < 85 else "🔴"
+        print(f"     {mem_color} [{bar(mem_pct)}] {mem_pct:.0f}%")
+    print(f"  💾 Disk:  {system.get('disk_used', '?')} / {system.get('disk_size', '?')} used")
+    print(f"     🟡 [{bar(disk_pct)}] {disk_pct_str}")
+    print(f"  ⏱  Load:  {load:.2f} (1m) | {system.get('load_5m', 0):.2f} (5m) | {system.get('load_15m', 0):.2f} (15m)")
+    print(f"  🕐 Up:    {system.get('uptime', '?')}")
+    
+    mh_size = system.get("memory_hub_size_mb")
+    if mh_size:
+        print(f"  🧩 Memory Hub: {mh_size} MB")
+    
+    # ─── Summary Row ─────────────────────────────────────────
+    svc_up = sum(1 for s in services if s["status"] == "up")
+    prov_ok = sum(1 for p in providers if p["status"] == "key_ok")
+    tools_ok = sum(1 for t in TOOLS if os.path.exists(os.path.expanduser(f"~/.local/bin/{t['engine']}")))
+    
+    health = "🟢 HEALTHY" if (svc_up >= 4 and prov_ok >= 4) else "🟡 DEGRADED" if (svc_up >= 2) else "🔴 CRITICAL"
+    
+    print(f"\n{'═'*60}")
+    print(f"  📊 Health: {health}  |  Tools: {tools_ok}/{len(TOOLS)}  |  Providers: {prov_ok}/{len(providers)}  |  Services: {svc_up}/{len(services)}")
+    print(f"{'═'*60}\n")
+
+
+def to_json(usage, providers, services, system):
+    """Output as JSON for web widgets."""
+    data = {
+        "timestamp": datetime.now().isoformat(),
+        "summary": {
+            "total_commands": usage["total"],
+            "commands_today": usage["today"],
+            "active_days": len(usage["days_active"]),
+        },
+        "tools": [],
+        "providers": providers,
+        "services": services,
+        "system": system,
+    }
+    
+    for tool in TOOLS:
+        cmd = tool["cmd"]
+        data["tools"].append({
+            "command": cmd,
+            "alias": tool["alias"],
+            "agents": tool["agents"],
+            "description": tool["desc"],
+            "runs": usage["by_tool"].get(cmd, 0),
+            "last_run": usage["last_run"].get(cmd, None),
+            "installed": os.path.exists(os.path.expanduser(f"~/.local/bin/{tool['engine']}")),
+        })
+    
+    data["services_up"] = sum(1 for s in services if s["status"] == "up")
+    data["services_total"] = len(services)
+    data["providers_ok"] = sum(1 for p in providers if p["status"] == "key_ok")
+    data["providers_total"] = len(providers)
+    
+    # Health
+    svc_up = data["services_up"]
+    prov_ok = data["providers_ok"]
+    if svc_up >= 4 and prov_ok >= 4:
+        data["health"] = "healthy"
+    elif svc_up >= 2:
+        data["health"] = "degraded"
+    else:
+        data["health"] = "critical"
+    
+    print(json.dumps(data, indent=2))
+
+
+def watch_mode():
+    """Live-refresh mode."""
+    try:
+        while True:
+            os.system("clear")
+            usage = get_tool_usage()
+            providers = check_providers()
+            services = check_services()
+            system = get_system_stats()
+            print_dashboard(usage, providers, services, system)
+            print(f"  🔄 Refreshing every 5s | Ctrl+C to stop")
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print("\n  👋 Stopped.")
+
+
+# ─── Main ────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ZES Unified Status Dashboard — All tools, providers, services, resources at a glance",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              zes status                # Full dashboard
+              zes status --json         # JSON for web widgets
+              zes status --simple       # One-line compact
+              zes status --watch        # Live refresh every 5s
+        """),
+    )
+    parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument("--simple", action="store_true", help="One-line compact")
+    parser.add_argument("--watch", "-w", action="store_true", help="Live-refresh every 5s")
+    
+    args = parser.parse_args()
+    
+    if args.watch:
+        watch_mode()
+        return
+    
+    usage = get_tool_usage()
+    providers = check_providers()
+    services = check_services()
+    system = get_system_stats()
+    
+    if args.json:
+        to_json(usage, providers, services, system)
+    else:
+        print_dashboard(usage, providers, services, system, simple=args.simple)
+
+
+if __name__ == "__main__":
+    main()

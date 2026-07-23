@@ -62,6 +62,14 @@ case "${cmd}" in
     shift
     exec python3 "$HOME/.local/bin/zes-bench" "$@"
     ;;
+  status|st)
+    shift
+    exec python3 "$HOME/.local/bin/zes-status" "$@"
+    ;;
+  widget|w)
+    shift
+    exec python3 "$HOME/.local/bin/zes-widget" "$@"
+    ;;
   --check|-c|check)
     echo "=== Research Providers ==="
     python3 "$RESEARCH_ENGINE" --check
