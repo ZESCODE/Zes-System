@@ -58,6 +58,20 @@ DIRECT_PROVIDERS = {
         "env_key": "NVIDIA_API_KEY",
         "name": "NVIDIA NIM (Llama 3.1 70B)",
     },
+    "github_key": {
+        "url": "https://models.inference.ai.azure.com/chat/completions",
+        "model": "gpt-4.1",
+        "env_key": "GITHUB_PAT_ARFAXDEV",
+        "name": "GitHub Models (GPT-4.1)",
+    },
+    # Cerebras: 1800+ tok/s inference. Sign up at https://inference.cerebras.ai/
+    # Add CEREBRAS_API_KEY to master.env and uncomment:
+    #"cerebras_key": {
+    #    "url": "https://api.cerebras.ai/v1/chat/completions",
+    #    "model": "llama-3.3-70b",
+    #    "env_key": "CEREBRAS_API_KEY",
+    #    "name": "Cerebras (Llama 3.3 70B)",
+    #},
 }
 
 # Proxy-based providers (through BitRouter — handles concurrency fine)

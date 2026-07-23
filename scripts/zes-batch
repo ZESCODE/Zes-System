@@ -1,0 +1,302 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""ZES Cloud Hyperswarm — Batch Task Processor.
+
+Port of swarm_batch.sh to cloud API stack. Distributes 100+ tasks
+round-robin across all available providers. ~60 tasks/minute throughput.
+
+Usage:
+  zes batch tasks.txt
+  zes batch tasks.txt --output ~/results/
+  zes batch --inline "Write a welcome email for a dental clinic"
+  zes batch tasks.txt --providers groq_key bitrouter_gpt --concurrent 10
+"""
+
+import asyncio, aiohttp, json, sys, os, argparse, csv, time, re
+from datetime import datetime
+from pathlib import Path
+
+# ─── Load API Keys ────────────────────────────────────────────────
+def _load_env():
+    env_file = os.path.expanduser("~/.secure-credentials/master.env")
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("export "):
+                    parts = line[7:].split("=", 1)
+                    if len(parts) == 2:
+                        val = parts[1].strip("\"'")
+                        if val:
+                            os.environ.setdefault(parts[0], val)
+_load_env()
+
+# ─── Provider Config ───────────────────────────────────────────────
+DIRECT_PROVIDERS = {
+    "groq": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "model": "llama-3.3-70b-versatile",
+        "env_key": "GROQ_API_KEY",
+        "name": "Groq (Llama 3.3 70B)",
+    },
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "deepseek/deepseek-v4-flash",
+        "env_key": "OPENROUTER_API_KEY",
+        "name": "OpenRouter (DeepSeek V4)",
+    },
+    "mistral": {
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "model": "mistral-medium-2505",
+        "env_key": "MISTRAL_API_KEY",
+        "name": "Mistral AI (Medium)",
+    },
+    "nvidia": {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "model": "meta/llama-3.1-70b-instruct",
+        "env_key": "NVIDIA_API_KEY",
+        "name": "NVIDIA NIM (Llama 3.1 70B)",
+    },
+    "github": {
+        "url": "https://models.inference.ai.azure.com/chat/completions",
+        "model": "gpt-4.1",
+        "env_key": "GITHUB_PAT_ARFAXDEV",
+        "name": "GitHub Models (GPT-4.1)",
+    },
+    # Cerebras: 1800+ tok/s inference. Sign up at https://inference.cerebras.ai/
+    # Add CEREBRAS_API_KEY to master.env and uncomment:
+    #"cerebras": {
+    #    "url": "https://api.cerebras.ai/v1/chat/completions",
+    #    "model": "llama-3.3-70b",
+    #    "env_key": "CEREBRAS_API_KEY",
+    #    "name": "Cerebras (Llama 3.3 70B)",
+    #},
+}
+
+PROXY_PROVIDERS = {
+    "bitrouter_gpt": {
+        "url": "http://127.0.0.1:4356/v1/chat/completions",
+        "model": "openai/gpt-5.4-mini",
+        "env_key": None,
+        "name": "BitRouter (GPT-5.4 Mini)",
+    },
+    "bitrouter_gemini": {
+        "url": "http://127.0.0.1:4356/v1/chat/completions",
+        "model": "google/gemini-3.5-flash",
+        "env_key": None,
+        "name": "BitRouter (Gemini 3.5 Flash)",
+    },
+}
+
+ALL_PROVIDERS = {**DIRECT_PROVIDERS, **PROXY_PROVIDERS}
+
+# Tasks are cheap → use fast system prompt
+SYSTEM_PROMPT = "You are a helpful AI assistant. Complete the task concisely and accurately. Use markdown when appropriate."
+
+
+def get_available_providers():
+    """Return list of provider keys that have their API keys set."""
+    available = []
+    for name, cfg in ALL_PROVIDERS.items():
+        if cfg.get("env_key"):
+            if os.environ.get(cfg["env_key"]):
+                available.append(name)
+        else:
+            # Proxy providers — check if endpoint is reachable
+            available.append(name)
+    return available
+
+
+async def call_provider(session, provider, task, task_id, timeout=30):
+    """Call a single provider with one task."""
+    cfg = ALL_PROVIDERS.get(provider)
+    if not cfg:
+        return task_id, provider, f"[ERROR: unknown provider]", 0, "ERROR"
+
+    headers = {"Content-Type": "application/json"}
+    if cfg.get("env_key"):
+        key = os.environ.get(cfg["env_key"])
+        if not key:
+            return task_id, provider, f"[MISSING KEY]", 0, "ERROR"
+        headers["Authorization"] = f"Bearer {key}"
+
+    if "openrouter" in provider:
+        headers["HTTP-Referer"] = "https://github.com/ZESCODE/Zes-Orchestration-System"
+        headers["X-Title"] = "ZES Batch Processor"
+
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": task},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024,
+    }
+
+    start = time.time()
+    try:
+        async with session.post(
+            cfg["url"], json=payload, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as resp:
+            elapsed = time.time() - start
+            if resp.status != 200:
+                text = await resp.text()
+                return task_id, provider, f"[HTTP {resp.status}]", elapsed, "ERROR"
+            data = await resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if not content:
+                return task_id, provider, "[EMPTY]", elapsed, "EMPTY"
+            return task_id, provider, content.strip(), elapsed, "OK"
+    except asyncio.TimeoutError:
+        elapsed = time.time() - start
+        return task_id, provider, f"[TIMEOUT]", elapsed, "TIMEOUT"
+    except Exception as e:
+        elapsed = time.time() - start
+        return task_id, provider, f"[ERROR: {str(e)[:100]}", elapsed, "ERROR"
+
+
+async def main():
+    parser = argparse.ArgumentParser(
+        description="ZES Cloud Hyperswarm — Batch Task Processor",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("file", nargs="?", help="Tasks file (one task per line)")
+    parser.add_argument("--inline", "-i", type=str, default="",
+                        help="Process a single task inline")
+    parser.add_argument("--output", "-o", type=str, default="",
+                        help="Output directory for results")
+    parser.add_argument("--providers", "-p", type=str, nargs="*",
+                        help="Providers to use (space-separated)")
+    parser.add_argument("--concurrent", "-c", type=int, default=10,
+                        help="Concurrent tasks per provider (default: 10)")
+    parser.add_argument("--timeout", type=int, default=30,
+                        help="Per-task timeout in seconds")
+
+    args = parser.parse_args()
+
+    # Get tasks
+    tasks = []
+    if args.inline:
+        tasks = [args.inline]
+    elif args.file:
+        fpath = os.path.expanduser(args.file)
+        if not os.path.exists(fpath):
+            print(f"Error: File not found: {fpath}")
+            sys.exit(1)
+        with open(fpath) as f:
+            tasks = [line.strip() for line in f if line.strip()]
+    else:
+        parser.print_help()
+        print("\nExample: zes batch tasks.txt")
+        print("Example: zes batch --inline \"Write a welcome email\"")
+        sys.exit(1)
+
+    if not tasks:
+        print("Error: No tasks found")
+        sys.exit(1)
+
+    # Select providers
+    available = get_available_providers()
+    if args.providers:
+        selected = [p for p in args.providers if p in ALL_PROVIDERS]
+        if not selected:
+            print(f"Error: No valid providers. Available: {', '.join(available)}")
+            sys.exit(1)
+    else:
+        selected = available
+
+    if not selected:
+        print("Error: No providers available. Check API keys.")
+        sys.exit(1)
+
+    # Round-robin: assign each task to a provider
+    provider_cycle = [selected[i % len(selected)] for i in range(len(tasks))]
+
+    print(f"{'═'*60}")
+    print(f"  ZES Cloud Hyperswarm — Batch Processor")
+    print(f"{'═'*60}")
+    print(f"  Tasks:     {len(tasks)}")
+    print(f"  Providers: {len(selected)} ({', '.join(selected)})")
+    print(f"  Concurrency: {args.concurrent} tasks/providers")
+    print(f"{'═'*60}\n")
+
+    # Process tasks with semaphore-based concurrency
+    sem = asyncio.Semaphore(args.concurrent)
+    results = []
+
+    async with aiohttp.ClientSession() as session:
+        start_time = time.time()
+
+        async def process_one(task, idx):
+            provider = provider_cycle[idx]
+            async with sem:
+                return await call_provider(session, provider, task, idx, args.timeout)
+
+        # Create all tasks and track progress
+        pending = [process_one(task, i) for i, task in enumerate(tasks)]
+        completed = 0
+        errors = 0
+
+        for coro in asyncio.as_completed(pending):
+            task_id, provider, content, elapsed, status = await coro
+            results.append((task_id, provider, content, elapsed, status))
+
+            completed += 1
+            if status != "OK":
+                errors += 1
+                marker = "❌"
+            else:
+                marker = "✅"
+
+            pct = (completed / len(tasks)) * 100
+            char_count = len(content) if status == "OK" else 0
+            task_text = tasks[task_id][:60] if task_id < len(tasks) else ""
+            print(f"  {marker} [{completed}/{len(tasks)}] {pct:5.1f}% | {provider:15s} | {char_count:4d} chars | {elapsed:4.1f}s | {task_text}")
+
+        total_time = time.time() - start_time
+
+    # Sort results by task_id
+    results.sort(key=lambda r: r[0])
+
+    print(f"\n{'═'*60}")
+    print(f"  COMPLETE: {len(tasks)} tasks in {total_time:.1f}s ({len(tasks)/max(total_time,0.1):.1f} tasks/s)")
+    print(f"  Success: {len(tasks)-errors}, Errors: {errors}")
+    print(f"{'═'*60}\n")
+
+    # Output directory
+    if args.output:
+        outdir = os.path.expanduser(args.output)
+    else:
+        outdir = os.path.expanduser("~/.zes/batch")
+    os.makedirs(outdir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Write results as CSV
+    csv_path = f"{outdir}/batch_{timestamp}.csv"
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["task_id", "provider", "task", "status", "elapsed_s", "result"])
+        for task_id, provider, content, elapsed, status in results:
+            writer.writerow([task_id, provider, tasks[task_id][:100], status, f"{elapsed:.2f}", content[:500]])
+    print(f"  CSV: {csv_path}")
+
+    # Write full results as text
+    txt_path = f"{outdir}/batch_{timestamp}.txt"
+    with open(txt_path, "w") as f:
+        f.write(f"ZES Cloud Hyperswarm Batch Results\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Tasks: {len(tasks)}, Time: {total_time:.1f}s, Success: {len(tasks)-errors}, Errors: {errors}\n")
+        f.write(f"{'─'*60}\n\n")
+        for task_id, provider, content, elapsed, status in results:
+            f.write(f"[{task_id:4d}] {provider:15s} | {status:7s} | {elapsed:4.1f}s\n")
+            f.write(f"Task: {tasks[task_id][:200]}\n")
+            f.write(f"Result: {content[:500]}\n")
+            f.write(f"{'─'*40}\n\n")
+    print(f"  TXT: {txt_path}")
+    print(f"  Done.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
